@@ -22,7 +22,7 @@ public partial class MainWindow : Window
     public MainWindow(AppServices services)
     {
         InitializeComponent(); _services = services; _stateMachine = new PetStateMachine(services);
-        Loaded += (_, _) => { Left = _services.Settings.General.Left; Top = _services.Settings.General.Top; ApplyOptions(); ApplyCharacter(); _behaviorTimer.Start(); };
+        Loaded += (_, _) => { RestoreVisiblePosition(); ApplyOptions(); ApplyCharacter(); Show(); Activate(); _behaviorTimer.Start(); };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; };
         _speechTimer.Tick += (_, _) => { SpeechBubble.Visibility = Visibility.Collapsed; SetState(PetState.Idle); _speechTimer.Stop(); };
         _behaviorTimer.Tick += (_, _) => RunBehavior();
@@ -35,6 +35,21 @@ public partial class MainWindow : Window
         if (handle == IntPtr.Zero) return;
         var style = GetWindowLong(handle, GwlExStyle);
         SetWindowLong(handle, GwlExStyle, _services.Settings.General.ClickThrough ? style | WsExTransparent : style & ~WsExTransparent);
+    }
+
+    private void RestoreVisiblePosition()
+    {
+        var saved = _services.Settings.General;
+        var leftLimit = SystemParameters.VirtualScreenLeft;
+        var topLimit = SystemParameters.VirtualScreenTop;
+        var rightLimit = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - Width;
+        var bottomLimit = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - Height;
+        var desiredLeft = saved.Left;
+        var desiredTop = saved.Top;
+        var isOutside = double.IsNaN(desiredLeft) || double.IsNaN(desiredTop) || desiredLeft < leftLimit || desiredLeft > rightLimit || desiredTop < topLimit || desiredTop > bottomLimit;
+        Left = isOutside ? Math.Max(leftLimit + 20, rightLimit - 28) : Math.Clamp(desiredLeft, leftLimit, rightLimit);
+        Top = isOutside ? Math.Max(topLimit + 20, bottomLimit - 28) : Math.Clamp(desiredTop, topLimit, bottomLimit);
+        saved.Left = Left; saved.Top = Top;
     }
 
     public void ApplyCharacter()

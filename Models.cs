@@ -15,8 +15,8 @@ public sealed class AppSettings
 
 public sealed class GeneralSettings
 {
-    public double Left { get; set; } = 80;
-    public double Top { get; set; } = 620;
+    public double Left { get; set; } = double.NaN;
+    public double Top { get; set; } = double.NaN;
     public bool AlwaysOnTop { get; set; } = true;
     public bool ClickThrough { get; set; }
     public string CharacterId { get; set; } = "bpet-cat";
