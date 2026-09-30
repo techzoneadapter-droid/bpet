@@ -1,0 +1,18 @@
+<Application x:Class="BPet.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Startup="App_Startup" Exit="App_Exit" ShutdownMode="OnExplicitShutdown">
+  <Application.Resources>
+    <SolidColorBrush x:Key="Ink" Color="#202337" />
+    <SolidColorBrush x:Key="Accent" Color="#7856E8" />
+    <SolidColorBrush x:Key="Paper" Color="#FFFDFB" />
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="Margin" Value="4" />
+      <Setter Property="Background" Value="#7856E8" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+  </Application.Resources>
+</Application>

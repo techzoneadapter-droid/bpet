@@ -1,1 +1,10 @@
-# BPet source repository
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.pfx
+appsettings.local.json
+*.db
+*.db-shm
+*.db-wal
