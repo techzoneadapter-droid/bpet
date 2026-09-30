@@ -22,7 +22,8 @@ public partial class App : System.Windows.Application
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BPet", "logs");
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "startup-error.log"), error.ToString());
-            System.Windows.MessageBox.Show("BPet không khởi động được. Đã lưu chi tiết lỗi tại: %LocalAppData%\\BPet\\logs\\startup-error.log", "BPet", MessageBoxButton.OK, MessageBoxImage.Error);
+            var reason = error.GetBaseException().Message;
+            System.Windows.MessageBox.Show($"BPet không khởi động được: {reason}\\n\\nĐã lưu chi tiết lỗi tại: %LocalAppData%\\BPet\\logs\\startup-error.log", "BPet", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
         }
     }

@@ -4,7 +4,7 @@
         Title="BPet" Width="214" Height="260" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ResizeMode="NoResize" MouseLeftButtonDown="Pet_MouseLeftButtonDown" MouseLeftButtonUp="Pet_MouseLeftButtonUp" MouseMove="Pet_MouseMove" MouseRightButtonUp="Pet_MouseRightButtonUp" MouseDoubleClick="Pet_MouseDoubleClick">
   <Grid>
-    <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FDFDFFFF" CornerRadius="18" Padding="14" BorderBrush="#D8D1FF" BorderThickness="1" VerticalAlignment="Top" Margin="0,0,0,154" Effect="{DynamicResource {x:Static SystemParameters.DropShadowKey}}">
+    <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FDFDFFFF" CornerRadius="18" Padding="14" BorderBrush="#D8D1FF" BorderThickness="1" VerticalAlignment="Top" Margin="0,0,0,154">
       <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#26233B" FontSize="14" MaxHeight="78" />
     </Border>
     <Grid VerticalAlignment="Bottom" Height="175" x:Name="PetVisual">
