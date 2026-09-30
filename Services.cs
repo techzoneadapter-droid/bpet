@@ -203,6 +203,48 @@ public sealed class PetStateMachine
     }
 }
 
+public sealed record UpdateInfo(Version Version, string InstallerUrl, string Notes);
+
+public sealed class UpdateService
+{
+    private const string LatestReleaseUrl = "https://api.github.com/repos/techzoneadapter-droid/bpet/releases/latest";
+    public Version CurrentVersion => System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(1, 0, 0);
+
+    public async Task<UpdateInfo?> CheckAsync(CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BPet-Updater/1.0");
+        using var response = await client.GetAsync(LatestReleaseUrl, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var tag = json.RootElement.GetProperty("tag_name").GetString()?.TrimStart('v', 'V') ?? "";
+        if (!Version.TryParse(tag, out var latest) || latest <= CurrentVersion) return null;
+        var asset = json.RootElement.GetProperty("assets").EnumerateArray().FirstOrDefault(x => x.GetProperty("name").GetString()?.Equals("BPet-Setup.exe", StringComparison.OrdinalIgnoreCase) == true);
+        if (asset.ValueKind == JsonValueKind.Undefined) return null;
+        return new UpdateInfo(latest, asset.GetProperty("browser_download_url").GetString()!, json.RootElement.TryGetProperty("body", out var body) ? body.GetString() ?? "" : "");
+    }
+
+    public async Task DownloadAndLaunchAsync(UpdateInfo update, IProgress<int>? progress, CancellationToken cancellationToken)
+    {
+        var destination = Path.Combine(Path.GetTempPath(), $"BPet-Setup-{update.Version}.exe");
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BPet-Updater/1.0");
+        using var response = await client.GetAsync(update.InstallerUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var length = response.Content.Headers.ContentLength;
+        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var output = File.Create(destination);
+        var buffer = new byte[81920]; long total = 0; int read;
+        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken); total += read;
+            if (length is > 0) progress?.Report((int)(total * 100 / length.Value));
+        }
+        Process.Start(new ProcessStartInfo(destination) { UseShellExecute = true });
+    }
+}
+
 public interface IAIProvider
 {
     string DisplayName { get; }

@@ -78,6 +78,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(Item("Chat", () => new ChatWindow(_services).Show()));
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
+        menu.Items.Add(Item("Kiểm tra cập nhật", () => new UpdateWindow().Show()));
         var profiles = new MenuItem { Header = "Tính cách" };
         foreach (var profile in _services.Settings.Profiles) profiles.Items.Add(Item(profile.Name, () => { _services.ActivatePersonalityProfile(profile); ShowSpeech($"Đã chuyển sang {profile.Name}.", PetState.Happy); }));
         profiles.Items.Add(Item("Chỉnh sửa profile…", () => new SettingsWindow(_services).Show()));
