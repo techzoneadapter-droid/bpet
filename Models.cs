@@ -78,3 +78,18 @@ public sealed class Reminder
 }
 
 public sealed record ChatMessage(string Role, string Content);
+
+public sealed class CharacterManifest
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Version { get; set; } = "1.0";
+    public string RecommendedAttitude { get; set; } = "Cute";
+    public string Preview { get; set; } = "preview.png";
+    public Dictionary<string, string> Animations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed record CharacterInfo(string Id, string Name, string RecommendedAttitude, bool IsBuiltIn, string? Folder, CharacterManifest Manifest)
+{
+    public override string ToString() => Name;
+}

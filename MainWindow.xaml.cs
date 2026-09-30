@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using System.Windows.Media;
 using MenuItem = System.Windows.Controls.MenuItem;
 
 namespace BPet;
@@ -11,6 +12,8 @@ public partial class MainWindow : Window
 {
     private readonly AppServices _services;
     private readonly DispatcherTimer _speechTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+    private readonly DispatcherTimer _behaviorTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private readonly PetStateMachine _stateMachine;
     private bool _dragging;
     private bool _exitRequested;
     private PetState _state = PetState.Idle;
@@ -18,10 +21,11 @@ public partial class MainWindow : Window
 
     public MainWindow(AppServices services)
     {
-        InitializeComponent(); _services = services;
-        Loaded += (_, _) => { Left = _services.Settings.General.Left; Top = _services.Settings.General.Top; ApplyOptions(); };
+        InitializeComponent(); _services = services; _stateMachine = new PetStateMachine(services);
+        Loaded += (_, _) => { Left = _services.Settings.General.Left; Top = _services.Settings.General.Top; ApplyOptions(); ApplyCharacter(); _behaviorTimer.Start(); };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; };
         _speechTimer.Tick += (_, _) => { SpeechBubble.Visibility = Visibility.Collapsed; SetState(PetState.Idle); _speechTimer.Stop(); };
+        _behaviorTimer.Tick += (_, _) => RunBehavior();
     }
 
     public void ApplyOptions()
@@ -33,12 +37,38 @@ public partial class MainWindow : Window
         SetWindowLong(handle, GwlExStyle, _services.Settings.General.ClickThrough ? style | WsExTransparent : style & ~WsExTransparent);
     }
 
+    public void ApplyCharacter()
+    {
+        var selected = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.First();
+        _services.Settings.General.CharacterId = selected.Id;
+        var colors = selected.Id switch
+        {
+            "bpet-chibi" => ("#FF8FA3", "#E25B77"),
+            "bpet-knight" => ("#496F9D", "#2D466B"),
+            _ => ("#8D72F8", "#7055D6")
+        };
+        PetBody.Fill = (System.Windows.Media.Brush)new BrushConverter().ConvertFromString(colors.Item1)!;
+        LeftEar.Fill = RightEar.Fill = (System.Windows.Media.Brush)new BrushConverter().ConvertFromString(colors.Item2)!;
+        SetState(PetState.Idle);
+    }
+
     public void ShowSpeech(string text, PetState state = PetState.Talking)
     {
         SpeechText.Text = text; SpeechBubble.Visibility = Visibility.Visible; SetState(state); _speechTimer.Stop(); _speechTimer.Start();
     }
     public void RequestExit() => _exitRequested = true;
     private void SetState(PetState state) { _state = state; StateText.Text = $"{_services.Settings.Personality.PetName} · {state}"; }
+    private void RunBehavior()
+    {
+        if (_dragging || SpeechBubble.Visibility == Visibility.Visible) return;
+        var next = _stateMachine.Decide();
+        SetState(next);
+        if (next == PetState.Walk)
+        {
+            var bounds = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth - Width, SystemParameters.VirtualScreenHeight - Height);
+            Left = Math.Clamp(Left + 3, bounds.Left, bounds.Right);
+        }
+    }
     private void Pet_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) { _dragging = true; SetState(PetState.Dragged); CaptureMouse(); }
     private void Pet_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) { if (_dragging && e.LeftButton == MouseButtonState.Pressed) DragMove(); }
     private void Pet_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) { _dragging = false; ReleaseMouseCapture(); SetState(PetState.Idle); }
@@ -53,7 +83,7 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
     private static MenuItem Item(string label, Action action) { var item = new MenuItem { Header = label }; item.Click += (_, _) => action(); return item; }
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e) { if (!_exitRequested) { e.Cancel = true; Hide(); } _services.Save(); }
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e) { if (!_exitRequested) { e.Cancel = true; Hide(); } _behaviorTimer.Stop(); _services.Save(); }
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }

@@ -14,6 +14,7 @@ public sealed class AppServices : IDisposable
     public SettingsStore Store { get; } = new();
     public CredentialVault Credentials { get; } = new();
     public PersonalityPromptBuilder PromptBuilder { get; } = new();
+    public CharacterManager Characters { get; } = new();
     public ReminderService Reminders { get; }
     public TrayService Tray { get; }
 
@@ -23,7 +24,7 @@ public sealed class AppServices : IDisposable
         Tray = new TrayService(this);
     }
 
-    public void Load() { Settings = Store.Load(); Reminders.Start(); }
+    public void Load() { Settings = Store.Load(); Characters.Reload(); if (Characters.Find(Settings.General.CharacterId) is null) Settings.General.CharacterId = Characters.All.First().Id; Reminders.Start(); }
     public void Save() => Store.Save(Settings);
     public IAIProvider CurrentProvider() => Settings.Ai.Provider switch
     {
@@ -83,6 +84,106 @@ public sealed class PersonalityPromptBuilder
         Relationship style changes only language and tone, never safety rules, access permissions, or system privileges.
         {p.CustomInstructions}
         """;
+}
+
+public sealed class CharacterManager
+{
+    private readonly string _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BPet", "Characters");
+    private readonly List<CharacterInfo> _characters = new();
+    public IReadOnlyList<CharacterInfo> All => _characters;
+
+    public void Reload()
+    {
+        _characters.Clear();
+        foreach (var item in BuiltIns()) _characters.Add(item);
+        Directory.CreateDirectory(_root);
+        foreach (var folder in Directory.EnumerateDirectories(_root))
+        {
+            try
+            {
+                var manifestPath = Path.Combine(folder, "manifest.json");
+                var manifest = JsonSerializer.Deserialize<CharacterManifest>(File.ReadAllText(manifestPath));
+                if (IsValid(manifest, folder, out _)) _characters.Add(new CharacterInfo(manifest!.Id, manifest.Name, manifest.RecommendedAttitude, false, folder, manifest));
+            }
+            catch { /* A broken custom character is ignored and built-ins remain available. */ }
+        }
+    }
+
+    public CharacterInfo? Find(string id) => _characters.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    public CharacterInfo ImportFolder(string sourceFolder)
+    {
+        var manifestPath = Path.Combine(sourceFolder, "manifest.json");
+        if (!File.Exists(manifestPath)) throw new InvalidDataException("Character pack thiếu manifest.json.");
+        var manifest = JsonSerializer.Deserialize<CharacterManifest>(File.ReadAllText(manifestPath)) ?? throw new InvalidDataException("manifest.json không hợp lệ.");
+        if (!IsValid(manifest, sourceFolder, out var error)) throw new InvalidDataException(error);
+        var safeId = string.Concat(manifest.Id.Where(char.IsLetterOrDigit).Append('-')).TrimEnd('-');
+        if (safeId.Length == 0) throw new InvalidDataException("Character ID không hợp lệ.");
+        var destination = Path.Combine(_root, safeId);
+        if (Directory.Exists(destination)) Directory.Delete(destination, true);
+        CopyDirectory(sourceFolder, destination);
+        Reload();
+        return Find(manifest.Id) ?? throw new InvalidDataException("Không thể cài character pack.");
+    }
+
+    public CharacterInfo ImportZip(string zipPath)
+    {
+        var staging = Path.Combine(Path.GetTempPath(), "BPet", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(staging);
+        try
+        {
+            System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, staging);
+            var packRoot = File.Exists(Path.Combine(staging, "manifest.json")) ? staging : Directory.EnumerateDirectories(staging).FirstOrDefault(x => File.Exists(Path.Combine(x, "manifest.json")));
+            if (packRoot is null) throw new InvalidDataException("ZIP không có manifest.json ở thư mục gốc.");
+            return ImportFolder(packRoot);
+        }
+        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+
+    private static bool IsValid(CharacterManifest? manifest, string folder, out string error)
+    {
+        if (manifest is null || string.IsNullOrWhiteSpace(manifest.Id) || string.IsNullOrWhiteSpace(manifest.Name)) { error = "manifest phải có id và name."; return false; }
+        if (manifest.Animations.Count > 0 && !manifest.Animations.Values.All(x => File.Exists(Path.Combine(folder, x)))) { error = "Một hoặc nhiều tệp animation không tồn tại."; return false; }
+        error = ""; return true;
+    }
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source)) File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+        foreach (var child in Directory.EnumerateDirectories(source)) CopyDirectory(child, Path.Combine(destination, Path.GetFileName(child)));
+    }
+    private static IEnumerable<CharacterInfo> BuiltIns()
+    {
+        foreach (var (id, name, attitude) in new[] { ("bpet-cat", "BPet Cat · Cute", "Cute"), ("bpet-chibi", "BPet Chibi · Energetic", "Energetic"), ("bpet-knight", "BPet Knight · Serious", "Serious") })
+        {
+            var manifest = new CharacterManifest { Id = id, Name = name, RecommendedAttitude = attitude, Animations = Enum.GetNames<PetState>().ToDictionary(x => x, _ => "builtin", StringComparer.OrdinalIgnoreCase) };
+            yield return new CharacterInfo(id, name, attitude, true, null, manifest);
+        }
+    }
+}
+
+public sealed class PetStateMachine
+{
+    private readonly AppServices _services;
+    private readonly Random _random = new();
+    private DateTime _nextDecision = DateTime.MinValue;
+    public PetState Current { get; private set; } = PetState.Idle;
+    public PetStateMachine(AppServices services) => _services = services;
+    public PetState Decide()
+    {
+        var behavior = _services.Settings.PetBehavior;
+        if (!behavior.AutoMovement) return Set(PetState.Idle);
+        if (behavior.SimulationEnabled && behavior.Energy < 20) return Set(PetState.Sleep);
+        if (DateTime.Now < _nextDecision) return Current;
+        _nextDecision = DateTime.Now.AddSeconds(_random.Next(6, 14));
+        return Set(_random.Next(100) < behavior.MovementFrequency ? PetState.Walk : PetState.Idle);
+    }
+    public PetState Set(PetState desired)
+    {
+        var character = _services.Characters.Find(_services.Settings.General.CharacterId);
+        Current = character is not null && character.Manifest.Animations.ContainsKey(desired.ToString()) ? desired : PetState.Idle;
+        return Current;
+    }
 }
 
 public interface IAIProvider

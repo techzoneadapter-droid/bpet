@@ -8,9 +8,9 @@
       <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#26233B" FontSize="14" MaxHeight="78" />
     </Border>
     <Grid VerticalAlignment="Bottom" Height="175" x:Name="PetVisual">
-      <Ellipse Fill="#8D72F8" Width="146" Height="146" VerticalAlignment="Bottom" />
-      <Path Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="23,4,0,0" />
-      <Path Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,23,0" RenderTransformOrigin="0.5,0.5"><Path.RenderTransform><ScaleTransform ScaleX="-1" /></Path.RenderTransform></Path>
+      <Ellipse x:Name="PetBody" Fill="#8D72F8" Width="146" Height="146" VerticalAlignment="Bottom" />
+      <Path x:Name="LeftEar" Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="23,4,0,0" />
+      <Path x:Name="RightEar" Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,23,0" RenderTransformOrigin="0.5,0.5"><Path.RenderTransform><ScaleTransform ScaleX="-1" /></Path.RenderTransform></Path>
       <Ellipse Fill="#FFFDFB" Width="27" Height="32" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="49,59,0,0" />
       <Ellipse Fill="#FFFDFB" Width="27" Height="32" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,59,49,0" />
       <Ellipse Fill="#25213C" Width="9" Height="12" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="58,69,0,0" />

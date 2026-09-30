@@ -16,7 +16,7 @@ public partial class SettingsWindow : Window
     private void LoadSettings()
     {
         var s = _services.Settings; var p = s.Personality;
-        AlwaysOnTop.IsChecked = s.General.AlwaysOnTop; ClickThrough.IsChecked = s.General.ClickThrough; LanguagePicker.SelectedIndex = s.General.Language.StartsWith("vi") ? 0 : 1; Character.SelectedIndex = 0;
+        AlwaysOnTop.IsChecked = s.General.AlwaysOnTop; ClickThrough.IsChecked = s.General.ClickThrough; LanguagePicker.SelectedIndex = s.General.Language.StartsWith("vi") ? 0 : 1; ReloadCharacters();
         Provider.SelectedIndex = s.Ai.Provider switch { AiProviderKind.OpenAI => 1, AiProviderKind.Gemini => 2, AiProviderKind.OpenAiCompatible => 3, _ => 0 }; Model.Text = s.Ai.Provider == AiProviderKind.Gemini ? s.Ai.GeminiModel : s.Ai.OpenAiModel; BaseUrl.Text = s.Ai.CustomBaseUrl; Streaming.IsChecked = s.Ai.Streaming;
         PetName.Text = p.PetName; UserName.Text = p.UserName; Select(Attitude, p.Attitude); Affection.Value = p.Affection; Humor.Value = p.Humor; Formality.Value = p.Formality; Talkativeness.Value = p.Talkativeness; EmojiUsage.Value = p.EmojiUsage; CustomInstructions.Text = p.CustomInstructions;
         Select(RelationshipPreset, p.RelationshipPreset); PetPronoun.Text = p.PetPronoun; UserPronoun.Text = p.UserPronoun; RelationshipDescription.Text = p.RelationshipDescription;
@@ -24,6 +24,11 @@ public partial class SettingsWindow : Window
     }
     private static void Select(System.Windows.Controls.ComboBox combo, string text) { foreach (System.Windows.Controls.ComboBoxItem item in combo.Items) if ((string)item.Content == text) { combo.SelectedItem = item; break; } }
     private static string Choice(System.Windows.Controls.ComboBox combo) => (combo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "";
+    private void ReloadCharacters()
+    {
+        Character.ItemsSource = _services.Characters.All;
+        Character.SelectedItem = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.FirstOrDefault();
+    }
     private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded || Nav.SelectedItem is not ListBoxItem item) return; var title = item.Content.ToString()!; PageTitle.Text = title;
@@ -40,6 +45,29 @@ public partial class SettingsWindow : Window
         if (!IsLoaded) return; var preset = Choice(RelationshipPreset);
         var values = preset switch { "Trợ lý" => ("em", "anh/chị", "personal assistant"), "Dễ thương" => ("em", "anh", "cute companion"), "Anh - Em" => ("em", "anh", "warm companion"), "Em - Anh" => ("anh", "em", "warm companion"), "Chồng - Vợ" => ("em", "chồng", "married couple"), "Vợ - Chồng" => ("anh", "vợ", "married couple"), "Sếp - Trợ lý" => ("em", "sếp", "personal assistant"), "Tôi - Bạn" => ("tôi", "bạn", "friendly assistant"), "Mình - Bạn" => ("mình", "bạn", "friendly companion"), _ => ("mình", "bạn", "friend") };
         PetPronoun.Text = values.Item1; UserPronoun.Text = values.Item2; RelationshipDescription.Text = values.Item3;
+    }
+    private void Character_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || Character.SelectedItem is not CharacterInfo character) return;
+        _services.Settings.General.CharacterId = character.Id;
+        ((MainWindow)Application.Current.MainWindow).ApplyCharacter();
+    }
+    private void ImportZip_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Character pack (*.zip)|*.zip" };
+        if (dialog.ShowDialog(this) != true) return;
+        TryInstall(() => _services.Characters.ImportZip(dialog.FileName));
+    }
+    private void ImportFolder_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "Chọn thư mục character có manifest.json" };
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+        TryInstall(() => _services.Characters.ImportFolder(dialog.SelectedPath));
+    }
+    private void TryInstall(Func<CharacterInfo> install)
+    {
+        try { var character = install(); _services.Settings.General.CharacterId = character.Id; ReloadCharacters(); ((MainWindow)Application.Current.MainWindow).ApplyCharacter(); _services.Save(); System.Windows.MessageBox.Show(this, $"Đã cài {character.Name}.", "BPet"); }
+        catch (Exception error) { System.Windows.MessageBox.Show(this, error.Message, "Không thể cài character", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
     private void Preview_Click(object sender, RoutedEventArgs e) { SaveValues(false); PreviewText.Text = $"{_services.Settings.Personality.UserPronoun} cứ làm việc đi nha, có gì cần thì gọi {_services.Settings.Personality.PetPronoun}. {_services.Settings.Personality.PetName} ở đây nè."; }
     private void Save_Click(object sender, RoutedEventArgs e) { SaveValues(true); Close(); }
