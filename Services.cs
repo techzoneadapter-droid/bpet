@@ -26,6 +26,23 @@ public sealed class AppServices : IDisposable
 
     public void Load() { Settings = Store.Load(); Characters.Reload(); if (Characters.Find(Settings.General.CharacterId) is null) Settings.General.CharacterId = Characters.All.First().Id; Reminders.Start(); }
     public void Save() => Store.Save(Settings);
+    public void SavePersonalityProfile(string name)
+    {
+        var normalized = name.Trim();
+        if (normalized.Length == 0) throw new ArgumentException("Hãy đặt tên cho profile.");
+        var profile = Settings.Profiles.FirstOrDefault(x => x.Name.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        var snapshot = Clone(Settings.Personality);
+        if (profile is null) Settings.Profiles.Add(new PersonalityProfile { Name = normalized, Personality = snapshot, Provider = Settings.Ai.Provider });
+        else { profile.Personality = snapshot; profile.Provider = Settings.Ai.Provider; }
+        Save();
+    }
+    public void ActivatePersonalityProfile(PersonalityProfile profile)
+    {
+        Settings.Personality = Clone(profile.Personality);
+        if (profile.Provider is not null) Settings.Ai.Provider = profile.Provider.Value;
+        Save();
+    }
+    private static PersonalitySettings Clone(PersonalitySettings source) => JsonSerializer.Deserialize<PersonalitySettings>(JsonSerializer.Serialize(source)) ?? new PersonalitySettings();
     public IAIProvider CurrentProvider() => Settings.Ai.Provider switch
     {
         AiProviderKind.OpenAI => new OpenAiProvider(Credentials, Settings.Ai),

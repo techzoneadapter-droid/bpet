@@ -78,6 +78,10 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(Item("Chat", () => new ChatWindow(_services).Show()));
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
+        var profiles = new MenuItem { Header = "Tính cách" };
+        foreach (var profile in _services.Settings.Profiles) profiles.Items.Add(Item(profile.Name, () => { _services.ActivatePersonalityProfile(profile); ShowSpeech($"Đã chuyển sang {profile.Name}.", PetState.Happy); }));
+        profiles.Items.Add(Item("Chỉnh sửa profile…", () => new SettingsWindow(_services).Show()));
+        menu.Items.Add(profiles);
         menu.Items.Add(Item(_services.Settings.General.AlwaysOnTop ? "Bỏ luôn trên cùng" : "Luôn trên cùng", () => { _services.Settings.General.AlwaysOnTop = !_services.Settings.General.AlwaysOnTop; ApplyOptions(); }));
         menu.Items.Add(Item("Ngủ một lát", () => ShowSpeech("Em ngủ một lát nha.", PetState.Sleep)));
         menu.IsOpen = true;
