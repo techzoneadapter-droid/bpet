@@ -379,7 +379,9 @@ public sealed class OpenAiProvider : IAIProvider
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         var model = string.IsNullOrWhiteSpace(_settings.CustomModelId) ? _settings.OpenAiModel : _settings.CustomModelId;
         var body = new { model, messages = new[] { new { role = "system", content = system } }.Concat(messages.Select(x => new { role = x.Role, content = x.Content })).ToArray() };
-        using var response = await client.PostAsync("/v1/chat/completions", new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
+        var endpoint = baseUrl.TrimEnd('/') + (baseUrl.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? "/chat/completions" : "/v1/chat/completions");
+        using var response = await AiHttp.SendAsync(client, () => new HttpRequestMessage(HttpMethod.Post, endpoint)
+        { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") }, ct);
         await ApiErrors.EnsureSuccess(response, ct);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
@@ -401,12 +403,16 @@ public sealed class GeminiProvider : IAIProvider
         var key = _vault.Read("gemini") ?? throw new InvalidOperationException("Chưa có Gemini API key.");
         var model = GeminiModelName(_settings.GeminiModel);
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
-        request.Headers.TryAddWithoutValidation("x-goog-api-key", key);
+
         var contents = messages.Select(x => new { role = x.Role == "assistant" ? "model" : "user", parts = new[] { new { text = x.Content } } });
         var body = new { system_instruction = new { parts = new[] { new { text = system } } }, contents };
-        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-        using var response = await client.SendAsync(request, ct);
+        using var response = await AiHttp.SendAsync(client, () =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent");
+            request.Headers.TryAddWithoutValidation("x-goog-api-key", key.Trim());
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            return request;
+        }, ct);
         await ApiErrors.EnsureSuccess(response, ct);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var root = json.RootElement;
@@ -418,7 +424,7 @@ public sealed class GeminiProvider : IAIProvider
             if (part.TryGetProperty("thought", out var thought) && thought.ValueKind == JsonValueKind.True) continue;
             if (part.TryGetProperty("text", out var text) && text.GetString() is { Length: > 0 } value) texts.Add(value);
         }
-        if (texts.Count == 0) throw new InvalidOperationException("Gemini trả về rỗng. Thử model gemini-3.8-flash.");
+        if (texts.Count == 0) throw new InvalidOperationException("Gemini trả về rỗng. Hãy thử lại hoặc chọn model khác trong Cài đặt.");
         return string.Join("", texts);
     }
 
@@ -426,7 +432,7 @@ public sealed class GeminiProvider : IAIProvider
     {
         var value = model?.Trim() ?? "";
         if (value.Length == 0 || !value.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase)) return "gemini-3.8-flash";
-        return value is "gemini-2.5-flash" or "gemini-2.5-flash-lite" or "gemini-2.0-flash" or "gemini-1.5-flash" or "gemini-1.5-pro" ? "gemini-3.8-flash" : value;
+        return value; // Keep the model explicitly chosen by the user.
     }
 }
 
@@ -448,7 +454,34 @@ internal static class ApiErrors
         }
         catch { /* The body was not JSON. */ }
         if (message.Length > 240) message = message[..240];
-        throw new InvalidOperationException($"{(int)response.StatusCode}: {message}");
+        var explanation = (int)response.StatusCode switch
+        {
+            503 or 502 or 504 => "Máy chủ AI đang quá tải. Đã tự thử lại; bạn có thể bấm Thử lại hoặc đổi model trong Cài đặt. Đây không phải thông báo API key sai.",
+            429 => "API đang hết hạn mức hoặc bị giới hạn tốc độ. Kiểm tra hạn mức API rồi thử lại.",
+            401 or 403 => "API từ chối quyền truy cập. Kiểm tra API key, dự án và quyền dùng model.",
+            404 => "Không tìm thấy model hoặc địa chỉ API. Kiểm tra tên model và Base URL trong Cài đặt.",
+            _ => "Yêu cầu AI chưa thành công."
+        };
+        throw new InvalidOperationException($"{explanation} (HTTP {(int)response.StatusCode})\n{message}");
+    }
+}
+
+internal static class AiHttp
+{
+    internal static async Task<HttpResponseMessage> SendAsync(HttpClient client, Func<HttpRequestMessage> create, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = create();
+            var response = await client.SendAsync(request, ct);
+            var code = (int)response.StatusCode;
+            if (attempt >= 2 || code is not (429 or 502 or 503 or 504)) return response;
+            var retryAfter = response.Headers.RetryAfter;
+            var wait = retryAfter?.Delta ?? (retryAfter?.Date - DateTimeOffset.UtcNow) ?? TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
+            if (wait > TimeSpan.FromSeconds(15)) return response;
+            response.Dispose();
+            await Task.Delay(wait < TimeSpan.Zero ? TimeSpan.FromSeconds(1) : wait, ct);
+        }
     }
 }
 
@@ -635,3 +668,4 @@ public static class WindowsStartup
         catch { /* HKCU Run is normally writable. A failure here must not block the pet. */ }
     }
 }
+

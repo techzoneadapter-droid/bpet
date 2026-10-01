@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "BPet — Nhớ phiên trình duyệt",
+  "version": "1.0.0",
+  "description": "Lưu tab và cửa sổ trên máy để BPet mở lại theo ngày. Không lưu tab ẩn danh.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqEncTtX/uX9UBLBefiz02bzB7qHkdwscJcBtRGh788eSoRnS9H2RFb5SJWblP24DmsG3YHaULScgtEE0Cso0cENdn6gj8+7mlUDKNJ4LSTQHkoQnzqiUkfF39CoDqp4P4S9ReezBOBgY9OAikabp2eMPOYFyQvqQTYdIBpvFi+Jmol4ZylEopjbGVztUXM8MZCoXeuprPKtH0xLD+WbvE/osqYGPgyuF0d4SWRCcNAzF3+/BKXe/1K5Onz2LSNBdwTjE2LhY6XHlzEu2mNVcFIJEClNp9XEG8qr4CsF50xh3fQqTzsAJDsEImFtF2a8OPEFju3TXpiaDMWI0ZAv8aQIDAQAB",
+  "permissions": [
+    "tabs",
+    "storage",
+    "nativeMessaging",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "BPet — Lưu phiên ngay"
+  },
+  "incognito": "not_allowed"
+}

@@ -44,7 +44,7 @@ public partial class SettingsWindow : Window
         if (!IsLoaded || Nav.SelectedItem is not ListBoxItem item) return; var title = item.Content.ToString()!; PageTitle.Text = title;
         foreach (var panel in _panels.Values.Distinct()) panel.Visibility = Visibility.Collapsed;
         _panels[title].Visibility = Visibility.Visible;
-        if (title is "Memory" or "Advanced" or "About") InfoText.Text = title == "Memory" ? "Memory đang để ở chế độ local-only. Nền tảng giữ cấu hình và nhắc việc trên máy; lớp SQLite conversation/memory sẽ được bổ sung khi bắt đầu phần lịch sử chat." : title == "Advanced" ? "BPet không tự chạy lệnh shell, không tự đọc file, clipboard hay xóa dữ liệu. Những tool sau này đều cần cơ chế xin phép rõ ràng." : "BPet — Your AI companion on the desktop. Phiên bản nền tảng WPF cho Windows 10/11.";
+        if (title is "Memory" or "Advanced" or "About") InfoText.Text = title == "Memory" ? "Hội thoại được lưu trên máy, tối đa 200 tin. Tiện ích trình duyệt lưu phiên tối đa 30 ngày khi bạn cài và bật tiện ích. Phiên trình duyệt không gửi đến AI." : title == "Advanced" ? "Chat hỗ trợ lệnh mở ứng dụng, web, khóa máy, tắt/khởi động lại máy và nhắc việc. Tắt máy và mở nhiều tab cần xác nhận. BPet không chạy lệnh shell tùy ý do AI tạo ra." : "BPet — Your AI companion on the desktop. Phiên bản nền tảng WPF cho Windows 10/11.";
     }
     private void PetSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -174,3 +174,4 @@ public partial class SettingsWindow : Window
         s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); s.General.StyleId = PetStyle.SelectedIndex switch { 1 => "kiem-hiep", 2 => "giang-ho", _ => "thuong" }; s.News.Enabled = NewsEnabled.IsChecked == true; s.News.Gold = NewsGold.IsChecked == true; s.News.Ai = NewsAi.IsChecked == true; s.News.Marketing = NewsMkt.IsChecked == true; s.News.IntervalMinutes = (int)NewsInterval.Value; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
     }
 }
+

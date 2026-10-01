@@ -1,0 +1,19 @@
+KẾT NỐI BPET VỚI TRÌNH DUYỆT
+
+1. Cài bản BPet mới, mở BPet ít nhất một lần.
+2. Chrome: chrome://extensions; Edge: edge://extensions.
+3. Bật Chế độ dành cho nhà phát triển / Developer mode.
+4. Chọn Tải tiện ích đã giải nén / Load unpacked, chọn thư mục BrowserExtension này.
+5. Cài một lần trong từng profile cần nhớ, bấm biểu tượng BPet để lưu phiên đầu tiên.
+
+Lệnh mẫu: “Mở Chrome hôm qua”, “Mở trình duyệt tối qua”, “Mở trình duyệt ngày 2026-10-01”.
+Chọn phiên cuối cùng được lưu trong ngày; “tối qua” dùng phiên sau 18 giờ hôm qua.
+BPet giữ URL HTTP(S), tiêu đề, thứ tự tab, tab ghim và nhóm cửa sổ, tối đa 30 ngày / 3000 bản chụp.
+Không giữ cookie, mật khẩu, nội dung trang, biểu mẫu chưa lưu, vị trí cuộn, hay tab ẩn danh.
+Không gửi phiên trình duyệt tới AI. Hội thoại AI vẫn được gửi tới nhà cung cấp API bạn chọn.
+
+Khi khôi phục: mở các tab trong cửa sổ mới của đúng profile có tiện ích, không đóng tab hiện tại.
+Nếu trình duyệt đóng, BPet khởi chạy trình duyệt với yêu cầu khôi phục phiên gần nhất; nếu profile cần dùng chưa mở, hãy mở profile đó. Tiện ích nhận lệnh trong khoảng 30 giây. Lệnh hết hạn sau 10 phút.
+Không thể biết phiên hôm qua trước khi bắt đầu lưu. Firefox chưa được hỗ trợ bởi tiện ích này.
+Bấm “trạng thái trình duyệt” trong chat để kiểm tra kết quả. Biểu tượng ! trên tiện ích báo chưa kết nối được host.
+Gỡ tiện ích để ngừng lưu, nhắn “xóa lịch sử trình duyệt BPet” để xóa các phiên do BPet đã lưu.

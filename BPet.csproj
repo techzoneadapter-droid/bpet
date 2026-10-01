@@ -13,7 +13,10 @@
     <FileVersion>$(Version)</FileVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="BrowserHost/**/*.cs;Tests/**/*.cs" />
+    <Content Include="BrowserExtension/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\*.png" />
     <Resource Include="Assets\my\*.png" />
   </ItemGroup>
 </Project>
+

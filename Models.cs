@@ -121,3 +121,4 @@ public sealed record CharacterInfo(string Id, string Name, string RecommendedAtt
 {
     public override string ToString() => Name;
 }
+

@@ -35,6 +35,7 @@ public partial class App : System.Windows.Application
         {
             Services = new AppServices();
             Services.Load();
+            try { BrowserIntegration.Register(); } catch { /* Browser integration remains optional. */ }
             var pet = new MainWindow(Services);
             MainWindow = pet;
             pet.Show();
@@ -81,3 +82,4 @@ public partial class App : System.Windows.Application
         }
     }
 }
+

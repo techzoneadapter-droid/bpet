@@ -20,6 +20,15 @@ jobs:
           dotnet-version: 8.0.x
       - name: Publish self-contained BPet
         run: dotnet publish BPet.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Version=${{ env.VERSION }} -o publish
+      - name: Publish browser bridge
+        run: dotnet publish BrowserHost/BPet.BrowserHost.csproj -c Release -r win-x64 --self-contained true -o publish/browser-host
+      - name: Verify assistant and browser bridge
+        shell: pwsh
+        run: |
+          dotnet run --project Tests/BPet.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check BrowserExtension/background.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Create installer
@@ -34,3 +43,4 @@ jobs:
           name: BPet v${{ env.VERSION }}
           generate_release_notes: true
           files: installer/output/BPet-Setup.exe
+
