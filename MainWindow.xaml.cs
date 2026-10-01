@@ -40,21 +40,29 @@ public partial class MainWindow : Window
     private void RestoreVisiblePosition()
     {
         var saved = _services.Settings.General;
+        var width = double.IsFinite(Width) && Width > 1 ? Width : 214;
+        var height = double.IsFinite(Height) && Height > 1 ? Height : 260;
         var leftLimit = SystemParameters.VirtualScreenLeft;
         var topLimit = SystemParameters.VirtualScreenTop;
-        var rightLimit = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - Width;
-        var bottomLimit = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - Height;
+        var rightLimit = leftLimit + Math.Max(0, SystemParameters.VirtualScreenWidth - width);
+        var bottomLimit = topLimit + Math.Max(0, SystemParameters.VirtualScreenHeight - height);
+        if (rightLimit < leftLimit) rightLimit = leftLimit;
+        if (bottomLimit < topLimit) bottomLimit = topLimit;
         var desiredLeft = saved.Left;
         var desiredTop = saved.Top;
-        var isOutside = double.IsNaN(desiredLeft) || double.IsNaN(desiredTop) || desiredLeft < leftLimit || desiredLeft > rightLimit || desiredTop < topLimit || desiredTop > bottomLimit;
-        Left = isOutside ? Math.Max(leftLimit + 20, rightLimit - 28) : Math.Clamp(desiredLeft, leftLimit, rightLimit);
-        Top = isOutside ? Math.Max(topLimit + 20, bottomLimit - 28) : Math.Clamp(desiredTop, topLimit, bottomLimit);
-        saved.Left = Left; saved.Top = Top;
+        var onScreen = double.IsFinite(desiredLeft) && double.IsFinite(desiredTop) && desiredLeft >= leftLimit && desiredLeft <= rightLimit && desiredTop >= topLimit && desiredTop <= bottomLimit;
+        var left = onScreen ? desiredLeft : Math.Max(leftLimit + 16, rightLimit - 24);
+        var top = onScreen ? desiredTop : Math.Max(topLimit + 16, bottomLimit - 24);
+        Left = Math.Clamp(left, leftLimit, rightLimit);
+        Top = Math.Clamp(top, topLimit, bottomLimit);
+        saved.Left = Left;
+        saved.Top = Top;
     }
 
     public void ApplyCharacter()
     {
-        var selected = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.First();
+        var selected = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.FirstOrDefault();
+        if (selected is null) return;
         _services.Settings.General.CharacterId = selected.Id;
         var colors = selected.Id switch
         {
@@ -80,8 +88,10 @@ public partial class MainWindow : Window
         SetState(next);
         if (next == PetState.Walk)
         {
-            var bounds = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth - Width, SystemParameters.VirtualScreenHeight - Height);
-            Left = Math.Clamp(Left + 3, bounds.Left, bounds.Right);
+            var width = double.IsFinite(Width) && Width > 1 ? Width : 214;
+            var min = SystemParameters.VirtualScreenLeft;
+            var max = Math.Max(min, min + SystemParameters.VirtualScreenWidth - width);
+            Left = Math.Clamp(Left + 3, min, max);
         }
     }
     private void Pet_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) { _dragging = true; SetState(PetState.Dragged); CaptureMouse(); }
@@ -93,6 +103,14 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(Item("Chat", () => new ChatWindow(_services).Show()));
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
+        menu.Items.Add(Item(_services.Settings.General.LaunchWithWindows ? "Tắt khởi động cùng Windows" : "Bật khởi động cùng Windows", () =>
+        {
+            _services.Settings.General.LaunchWithWindows = !_services.Settings.General.LaunchWithWindows;
+            WindowsStartup.Apply(_services.Settings.General.LaunchWithWindows);
+            _services.Save();
+            _services.Tray.SyncStartupItem();
+            ShowSpeech(_services.Settings.General.LaunchWithWindows ? "BPet sẽ mở cùng Windows." : "BPet sẽ không tự mở cùng Windows nữa.", PetState.Happy);
+        }));
         menu.Items.Add(Item("Kiểm tra cập nhật", () => new UpdateWindow().Show()));
         var profiles = new MenuItem { Header = "Tính cách" };
         foreach (var profile in _services.Settings.Profiles) profiles.Items.Add(Item(profile.Name, () => { _services.ActivatePersonalityProfile(profile); ShowSpeech($"Đã chuyển sang {profile.Name}.", PetState.Happy); }));

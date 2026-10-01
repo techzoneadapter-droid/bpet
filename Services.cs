@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using Forms = System.Windows.Forms;
 
@@ -24,7 +25,15 @@ public sealed class AppServices : IDisposable
         Tray = new TrayService(this);
     }
 
-    public void Load() { Settings = Store.Load(); Characters.Reload(); if (Characters.Find(Settings.General.CharacterId) is null) Settings.General.CharacterId = Characters.All.First().Id; Reminders.Start(); }
+    public void Load()
+    {
+        Settings = Store.Load();
+        Characters.Reload();
+        if (Characters.Find(Settings.General.CharacterId) is null && Characters.All.Count > 0)
+            Settings.General.CharacterId = Characters.All[0].Id;
+        WindowsStartup.Apply(Settings.General.LaunchWithWindows);
+        Reminders.Start();
+    }
     public void Save() => Store.Save(Settings);
     public void SavePersonalityProfile(string name)
     {
@@ -56,7 +65,11 @@ public sealed class AppServices : IDisposable
 public sealed class SettingsStore
 {
     private readonly string _path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BPet", "settings.json");
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
     public AppSettings Load()
     {
         try { return File.Exists(_path) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new() : new(); }
@@ -64,6 +77,8 @@ public sealed class SettingsStore
     }
     public void Save(AppSettings settings)
     {
+        if (!double.IsFinite(settings.General.Left)) settings.General.Left = 48;
+        if (!double.IsFinite(settings.General.Top)) settings.General.Top = 48;
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
     }
@@ -317,36 +332,107 @@ public sealed class ReminderService : IDisposable
     public void Create(string message, DateTime dueAt) { _services.Settings.Reminders.Add(new Reminder { Message = message, DueAt = dueAt }); _services.Save(); }
     private void Check()
     {
-        var due = _services.Settings.Reminders.Where(x => !x.Delivered && x.DueAt <= DateTime.Now).ToList();
-        foreach (var reminder in due)
+        try
         {
-            reminder.Delivered = true; _services.Save();
-            Application.Current.Dispatcher.Invoke(() => ((MainWindow)Application.Current.MainWindow).ShowSpeech($"{_services.Settings.Personality.UserPronoun} ơi, tới giờ {reminder.Message} rồi nè.", PetState.Happy));
+            var due = _services.Settings.Reminders.Where(x => !x.Delivered && x.DueAt <= DateTime.Now).ToList();
+            if (due.Count == 0) return;
+            foreach (var reminder in due) reminder.Delivered = true;
+            _services.Save();
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                if (Application.Current.MainWindow is MainWindow pet)
+                    pet.ShowSpeech($"{_services.Settings.Personality.UserPronoun} ơi, tới giờ {reminderMessage(due)} rồi nè.", PetState.Happy);
+            });
         }
+        catch { /* A reminder must never take the pet down. */ }
     }
+    private static string reminderMessage(List<Reminder> due) => due.Count == 1 ? due[0].Message : string.Join(", ", due.Select(x => x.Message));
     public void Dispose() => _timer.Dispose();
 }
 
 public sealed class TrayService : IDisposable
 {
-    private readonly AppServices _services; private readonly Forms.NotifyIcon _icon;
+    private readonly AppServices _services;
+    private readonly Forms.NotifyIcon? _icon;
+    private readonly Forms.ToolStripMenuItem? _startupItem;
+
     public TrayService(AppServices services)
     {
         _services = services;
-        _icon = new Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Information, Text = "BPet — AI Desktop Companion", Visible = false };
-        var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Hiện BPet", null, (_, _) => ShowPet());
-        menu.Items.Add("Chat", null, (_, _) => Application.Current.Dispatcher.Invoke(() => new ChatWindow(_services).Show()));
-        menu.Items.Add("Cài đặt", null, (_, _) => Application.Current.Dispatcher.Invoke(() => new SettingsWindow(_services).Show()));
-        menu.Items.Add("Luôn trên cùng", null, (_, _) => { _services.Settings.General.AlwaysOnTop = !_services.Settings.General.AlwaysOnTop; ApplyPetOptions(); });
-        menu.Items.Add("Click through", null, (_, _) => { _services.Settings.General.ClickThrough = !_services.Settings.General.ClickThrough; ApplyPetOptions(); });
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Thoát", null, (_, _) => Application.Current.Dispatcher.Invoke(() => { ((MainWindow)Application.Current.MainWindow).RequestExit(); Application.Current.Shutdown(); }));
-        _icon.ContextMenuStrip = menu;
-        _icon.DoubleClick += (_, _) => ShowPet();
+        Forms.NotifyIcon? icon = null;
+        Forms.ToolStripMenuItem? startupItem = null;
+        try
+        {
+            icon = new Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Information, Text = "BPet — AI Desktop Companion", Visible = false };
+            var menu = new Forms.ContextMenuStrip();
+            menu.Items.Add("Hiện BPet", null, (_, _) => ShowPet());
+            menu.Items.Add("Chat", null, (_, _) => Ui(() => new ChatWindow(_services).Show()));
+            menu.Items.Add("Cài đặt", null, (_, _) => Ui(() => new SettingsWindow(_services).Show()));
+            menu.Items.Add("Luôn trên cùng", null, (_, _) => { _services.Settings.General.AlwaysOnTop = !_services.Settings.General.AlwaysOnTop; ApplyPetOptions(); });
+            menu.Items.Add("Click through", null, (_, _) => { _services.Settings.General.ClickThrough = !_services.Settings.General.ClickThrough; ApplyPetOptions(); });
+            startupItem = new Forms.ToolStripMenuItem("Khởi động cùng Windows");
+            startupItem.Click += (_, _) => Ui(ToggleStartup);
+            menu.Items.Add(startupItem);
+            menu.Items.Add(new Forms.ToolStripSeparator());
+            menu.Items.Add("Thoát", null, (_, _) => Ui(() =>
+            {
+                if (Application.Current.MainWindow is MainWindow pet) pet.RequestExit();
+                Application.Current.Shutdown();
+            }));
+            icon.ContextMenuStrip = menu;
+            icon.DoubleClick += (_, _) => ShowPet();
+        }
+        catch { icon?.Dispose(); icon = null; startupItem = null; }
+        _icon = icon;
+        _startupItem = startupItem;
+        SyncStartupItem();
     }
-    public void Show() => _icon.Visible = true;
-    private void ShowPet() => Application.Current.Dispatcher.Invoke(() => { var pet = (MainWindow)Application.Current.MainWindow; pet.Show(); pet.Activate(); });
-    private void ApplyPetOptions() => Application.Current.Dispatcher.Invoke(() => ((MainWindow)Application.Current.MainWindow).ApplyOptions());
-    public void Dispose() => _icon.Dispose();
+
+    public void Show() { if (_icon is not null) _icon.Visible = true; SyncStartupItem(); }
+    public void SyncStartupItem() { if (_startupItem is not null) _startupItem.Checked = _services.Settings.General.LaunchWithWindows; }
+    private void ToggleStartup()
+    {
+        _services.Settings.General.LaunchWithWindows = !_services.Settings.General.LaunchWithWindows;
+        WindowsStartup.Apply(_services.Settings.General.LaunchWithWindows);
+        _services.Save();
+        SyncStartupItem();
+    }
+    private void ShowPet() => Ui(() =>
+    {
+        if (Application.Current.MainWindow is not MainWindow pet) return;
+        pet.Show();
+        pet.Activate();
+    });
+    private void ApplyPetOptions() => Ui(() => { if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); });
+    private static void Ui(Action action)
+    {
+        if (Application.Current is null) return;
+        if (Application.Current.Dispatcher.CheckAccess()) action();
+        else Application.Current.Dispatcher.Invoke(action);
+    }
+    public void Dispose() => _icon?.Dispose();
+}
+
+public static class WindowsStartup
+{
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ValueName = "BPet";
+
+    public static void Apply(bool enabled)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (key is null) return;
+            if (!enabled)
+            {
+                key.DeleteValue(ValueName, false);
+                return;
+            }
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(exe)) return;
+            key.SetValue(ValueName, "\"" + exe + "\"");
+        }
+        catch { /* HKCU Run is normally writable. A failure here must not block the pet. */ }
+    }
 }

@@ -19,6 +19,7 @@ public sealed class GeneralSettings
     public double Top { get; set; } = double.NaN;
     public bool AlwaysOnTop { get; set; } = true;
     public bool ClickThrough { get; set; }
+    public bool LaunchWithWindows { get; set; }
     public string CharacterId { get; set; } = "bpet-cat";
     public string Language { get; set; } = "vi-VN";
 }
