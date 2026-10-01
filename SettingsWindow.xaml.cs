@@ -10,7 +10,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(AppServices services)
     {
         InitializeComponent(); _services = services;
-        _panels = new() { ["General"] = GeneralPanel, ["Character"] = CharacterPanel, ["AI Provider"] = AiPanel, ["AI Personality"] = PersonalityPanel, ["Relationship"] = RelationshipPanel, ["Pet Behavior"] = BehaviorPanel, ["Memory"] = InfoPanel, ["Advanced"] = InfoPanel, ["About"] = InfoPanel };
+        _panels = new() { ["General"] = GeneralPanel, ["Character"] = CharacterPanel, ["AI Provider"] = AiPanel, ["AI Personality"] = PersonalityPanel, ["Relationship"] = RelationshipPanel, ["Pet Behavior"] = BehaviorPanel, ["Việc hàng ngày"] = TasksPanel, ["Memory"] = InfoPanel, ["Advanced"] = InfoPanel, ["About"] = InfoPanel };
         LoadSettings();
     }
     private void LoadSettings()
@@ -26,6 +26,8 @@ public partial class SettingsWindow : Window
         AutoMovement.IsChecked = s.PetBehavior.AutoMovement; Simulation.IsChecked = s.PetBehavior.SimulationEnabled; MovementFrequency.Value = s.PetBehavior.MovementFrequency;
         var size = s.General.SizePercent is < 35 or > 140 ? 48 : s.General.SizePercent;
         PetSize.Value = size; SizeLabel.Text = size + "%";
+        PetStyle.SelectedIndex = s.General.StyleId switch { "kiem-hiep" => 1, "giang-ho" => 2, _ => 0 };
+        ReloadTasks();
     }
     private static void Select(System.Windows.Controls.ComboBox combo, string text) { foreach (System.Windows.Controls.ComboBoxItem item in combo.Items) if ((string)item.Content == text) { combo.SelectedItem = item; break; } }
     private static string Choice(System.Windows.Controls.ComboBox combo) => (combo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "";
@@ -71,8 +73,10 @@ public partial class SettingsWindow : Window
     }
     private void RelationshipPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded) return; var preset = Choice(RelationshipPreset);
-        var values = preset switch { "Trợ lý" => ("em", "anh/chị", "personal assistant"), "Dễ thương" => ("em", "anh", "cute companion"), "Anh - Em" => ("em", "anh", "warm companion"), "Em - Anh" => ("anh", "em", "warm companion"), "Chồng - Vợ" => ("em", "chồng", "married couple"), "Vợ - Chồng" => ("anh", "vợ", "married couple"), "Sếp - Trợ lý" => ("em", "sếp", "personal assistant"), "Tôi - Bạn" => ("tôi", "bạn", "friendly assistant"), "Mình - Bạn" => ("mình", "bạn", "friendly companion"), _ => ("mình", "bạn", "friend") };
+        if (!IsLoaded) return;
+        if (Choice(RelationshipPreset) is "" or "Custom") return;
+        var preset = Choice(RelationshipPreset);
+        var values = preset switch { "Trợ lý" => ("em", "anh/chị", "trợ lý riêng, lễ phép vừa đủ"), "Bạn bè" => ("mình", "bạn", "bạn bè ngang hàng"), "Dễ thương" => ("em", "anh", "dễ thương, gần gũi"), "Anh - Em" => ("em", "anh", "em nói với anh"), "Em - Anh" => ("anh", "em", "anh nói với em"), "Chồng - Vợ" => ("em", "anh", "vợ nói với chồng"), "Vợ - Chồng" => ("anh", "em", "chồng nói với vợ"), "Sếp - Trợ lý" => ("em", "sếp", "trợ lý nói với sếp"), "Tôi - Bạn" => ("tôi", "bạn", "lịch sự, khoảng cách vừa"), "Mình - Bạn" => ("mình", "bạn", "thân nhưng không suồng sã"), _ => ("mình", "bạn", "tự nhiên") };
         PetPronoun.Text = values.Item1; UserPronoun.Text = values.Item2; RelationshipDescription.Text = values.Item3;
     }
     private void Character_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -109,7 +113,44 @@ public partial class SettingsWindow : Window
         try { var character = install(); _services.Settings.General.CharacterId = character.Id; ReloadCharacters(); ((MainWindow)Application.Current.MainWindow).ApplyCharacter(); _services.Save(); System.Windows.MessageBox.Show(this, $"Đã cài {character.Name}.", "BPet"); }
         catch (Exception error) { System.Windows.MessageBox.Show(this, error.Message, "Không thể cài character", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-    private void Preview_Click(object sender, RoutedEventArgs e) { SaveValues(false); PreviewText.Text = $"{_services.Settings.Personality.UserPronoun} cứ làm việc đi nha, có gì cần thì gọi {_services.Settings.Personality.PetPronoun}. {_services.Settings.Personality.PetName} ở đây nè."; }
+    private void Preview_Click(object sender, RoutedEventArgs e)
+    {
+        SaveValues(false);
+        var p = _services.Settings.Personality;
+        var self = string.IsNullOrWhiteSpace(p.PetPronoun) ? "mình" : p.PetPronoun.Trim();
+        var user = string.IsNullOrWhiteSpace(p.UserPronoun) ? "bạn" : p.UserPronoun.Trim();
+        PreviewText.Text = $"{user} ơi, {self} ở đây. Cứ gọi {self} khi cần.";
+    }
+    private void PetStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _services.Settings.General.StyleId = PetStyle.SelectedIndex switch { 1 => "kiem-hiep", 2 => "giang-ho", _ => "thuong" };
+        _services.Save();
+    }
+    private void ReloadTasks() => TaskList.ItemsSource = _services.Settings.DailyTasks.ToList();
+    private void AddTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(TaskHour.Text, out var hour) || hour is < 0 or > 23 || !int.TryParse(TaskMinute.Text, out var minute) || minute is < 0 or > 59)
+        {
+            System.Windows.MessageBox.Show(this, "Giờ phải từ 0 đến 23, phút từ 0 đến 59.", "BPet");
+            return;
+        }
+        var name = TaskName.Text.Trim();
+        if (name.Length == 0) name = (TaskKind.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Việc hàng ngày";
+        var kind = (TaskKind.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString() ?? "custom";
+        _services.Settings.DailyTasks.Add(new DailyTask { Name = name, Kind = kind, Note = TaskNote.Text.Trim(), Hour = hour, Minute = minute });
+        _services.Save();
+        TaskName.Clear();
+        TaskNote.Clear();
+        ReloadTasks();
+    }
+    private void RemoveTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (TaskList.SelectedItem is not DailyTask task) return;
+        _services.Settings.DailyTasks.Remove(task);
+        _services.Save();
+        ReloadTasks();
+    }
     private void Save_Click(object sender, RoutedEventArgs e) { SaveValues(true); Close(); }
     private void Reset_Click(object sender, RoutedEventArgs e) { _services.Settings.Personality = new(); LoadSettings(); }
     private void SaveValues(bool persist)
@@ -118,6 +159,6 @@ public partial class SettingsWindow : Window
         s.Ai.Provider = Provider.SelectedIndex switch { 1 => AiProviderKind.OpenAI, 2 => AiProviderKind.Gemini, 3 => AiProviderKind.OpenAiCompatible, _ => AiProviderKind.None }; s.Ai.Streaming = Streaming.IsChecked == true; s.Ai.CustomBaseUrl = BaseUrl.Text.Trim(); s.Ai.CustomModelId = ""; if (s.Ai.Provider == AiProviderKind.Gemini) { s.Ai.GeminiModel = GeminiProvider.GeminiModelName(Model.Text); Model.Text = s.Ai.GeminiModel; } else s.Ai.OpenAiModel = Model.Text.Trim();
         var secretName = s.Ai.Provider switch { AiProviderKind.OpenAI => "openai", AiProviderKind.Gemini => "gemini", AiProviderKind.OpenAiCompatible => "custom", _ => "" }; if (!string.IsNullOrWhiteSpace(secretName) && !string.IsNullOrWhiteSpace(ApiKey.Password)) _services.Credentials.Save(secretName, ApiKey.Password);
         p.PetName = PetName.Text.Trim() is { Length: > 0 } name ? name : "BPet"; p.UserName = UserName.Text.Trim() is { Length: > 0 } user ? user : "Bạn"; p.Attitude = Choice(Attitude); p.RelationshipPreset = Choice(RelationshipPreset); p.PetPronoun = PetPronoun.Text.Trim(); p.UserPronoun = UserPronoun.Text.Trim(); p.RelationshipDescription = RelationshipDescription.Text.Trim(); p.Affection = (int)Affection.Value; p.Humor = (int)Humor.Value; p.Formality = (int)Formality.Value; p.Talkativeness = (int)Talkativeness.Value; p.Proactiveness = (int)Proactiveness.Value; p.EmojiUsage = (int)EmojiUsage.Value; p.CustomInstructions = CustomInstructions.Text;
-        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
+        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); s.General.StyleId = PetStyle.SelectedIndex switch { 1 => "kiem-hiep", 2 => "giang-ho", _ => "thuong" }; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
     }
 }

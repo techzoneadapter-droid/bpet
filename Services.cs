@@ -31,6 +31,8 @@ public sealed class AppServices : IDisposable
         Characters.Reload();
         if (Characters.Find(Settings.General.CharacterId) is null && Characters.All.Count > 0)
             Settings.General.CharacterId = Characters.All[0].Id;
+        if (Settings.Profiles.Count == 0)
+            Settings.Profiles.Add(new PersonalityProfile { Name = "Mặc định", Personality = Clone(Settings.Personality), Provider = Settings.Ai.Provider });
         WindowsStartup.Apply(Settings.General.LaunchWithWindows);
         Reminders.Start();
     }
@@ -107,15 +109,35 @@ public sealed class CredentialVault
 
 public sealed class PersonalityPromptBuilder
 {
-    public string Build(PersonalitySettings p) => $"""
-        You are {p.PetName}, an AI desktop companion. Speak naturally in Vietnamese unless the user asks otherwise.
-        The user's name is {p.UserName}. You call yourself '{p.PetPronoun}' and call the user '{p.UserPronoun}'.
-        Relationship style: {p.RelationshipDescription}. Attitude preset: {p.Attitude}.
-        Affection {p.Affection}/100, humor {p.Humor}/100, formality {p.Formality}/100, talkativeness {p.Talkativeness}/100, proactiveness {p.Proactiveness}/100, emoji usage {p.EmojiUsage}/100.
-        Be helpful, warm, concise when appropriate, and never sound like a generic chatbot. Do not repeat names unnecessarily.
-        Relationship style changes only language and tone, never safety rules, access permissions, or system privileges.
-        {p.CustomInstructions}
-        """;
+    public string Build(PersonalitySettings p)
+    {
+        var self = string.IsNullOrWhiteSpace(p.PetPronoun) ? "mình" : p.PetPronoun.Trim();
+        var user = string.IsNullOrWhiteSpace(p.UserPronoun) ? "bạn" : p.UserPronoun.Trim();
+        var tone = p.Attitude switch
+        {
+            "Cute" => "dễ thương, nhẹ nhàng",
+            "Gentle" => "dịu dàng",
+            "Funny" => "hài hước vừa phải",
+            "Energetic" => "nhanh, có sức sống",
+            "Calm" => "điềm tĩnh",
+            "Professional" or "Serious" => "gọn và chỉn chu",
+            "Tsundere" => "hơi bướng nhưng vẫn quan tâm",
+            "Romantic" => "ấm và gần",
+            "Caring" => "quan tâm, không sến",
+            _ => "tự nhiên"
+        };
+        return $"""
+            Bạn là {p.PetName}, bạn đồng hành trên màn hình. Trả lời bằng tiếng Việt.
+            XƯNG HÔ BẮT BUỘC, không được đổi:
+            - Tự xưng đúng từ "{self}". Cấm đổi sang từ khác.
+            - Gọi người đối diện đúng từ "{user}". Tên của họ là {p.UserName}, chỉ dùng tên khi thật sự cần.
+            - Câu mẫu đúng: "{user} ơi, {self} ở đây."
+            Giọng: {tone}. Quan hệ: {p.RelationshipPreset}. {p.RelationshipDescription}.
+            Thân mật {p.Affection}/100, hài {p.Humor}/100, trang trọng {p.Formality}/100, độ dài câu theo mức nói nhiều {p.Talkativeness}/100, emoji {p.EmojiUsage}/100.
+            Nói như người thật, ngắn, không mở đầu bằng "chắc chắn rồi" hay "với tư cách là AI".
+            {p.CustomInstructions}
+            """;
+    }
 }
 
 public sealed class CharacterManager
@@ -393,14 +415,19 @@ public sealed class ReminderService : IDisposable
     {
         try
         {
-            var due = _services.Settings.Reminders.Where(x => !x.Delivered && x.DueAt <= DateTime.Now).ToList();
-            if (due.Count == 0) return;
+            var now = DateTime.Now;
+            var due = _services.Settings.Reminders.Where(x => !x.Delivered && x.DueAt <= now).ToList();
+            var jobs = _services.Settings.DailyTasks.Where(task => task.Enabled && task.LastRun.Date != now.Date && now.Hour == task.Hour && now.Minute == task.Minute).ToList();
+            if (due.Count == 0 && jobs.Count == 0) return;
             foreach (var reminder in due) reminder.Delivered = true;
+            foreach (var task in jobs) task.LastRun = now;
             _services.Save();
             Application.Current?.Dispatcher.Invoke(() =>
             {
-                if (Application.Current.MainWindow is MainWindow pet)
+                if (Application.Current.MainWindow is not MainWindow pet) return;
+                if (due.Count > 0)
                     pet.ShowSpeech($"{_services.Settings.Personality.UserPronoun} ơi, tới giờ {reminderMessage(due)} rồi nè.", PetState.Happy);
+                foreach (var task in jobs) pet.RunDailyTask(task);
             });
         }
         catch { /* A reminder must never take the pet down. */ }
@@ -425,7 +452,7 @@ public sealed class TrayService : IDisposable
             icon = new Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Information, Text = "BPet — AI Desktop Companion", Visible = false };
             var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("Hiện BPet", null, (_, _) => ShowPet());
-            menu.Items.Add("Chat", null, (_, _) => Ui(() => new ChatWindow(_services).Show()));
+            menu.Items.Add("Chat", null, (_, _) => Ui(() => { if (Application.Current?.MainWindow is MainWindow pet) pet.OpenChat(); }));
             menu.Items.Add("Cài đặt", null, (_, _) => Ui(() => new SettingsWindow(_services).Show()));
             menu.Items.Add("Luôn trên cùng", null, (_, _) => { _services.Settings.General.AlwaysOnTop = !_services.Settings.General.AlwaysOnTop; ApplyPetOptions(); });
             menu.Items.Add("Click through", null, (_, _) => { _services.Settings.General.ClickThrough = !_services.Settings.General.ClickThrough; ApplyPetOptions(); });

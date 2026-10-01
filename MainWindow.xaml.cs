@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MenuItem = System.Windows.Controls.MenuItem;
@@ -18,15 +20,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _moveTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly Dictionary<string, BitmapImage[]> _clips = new();
     private readonly Random _random = new();
-    private readonly string[] _lines =
-    {
-        "Mình ở đây với bạn nè.",
-        "Đi dạo một vòng không?",
-        "Vỗ đầu mình một cái đi.",
-        "Hôm nay cũng được đó chứ.",
-        "Đói thì cho mình ăn nha.",
-        "Bạn làm việc đi, mình ngồi cạnh."
-    };
     private bool _dragging;
     private bool _pressed;
     private bool _dragged;
@@ -44,6 +37,8 @@ public partial class MainWindow : Window
     private const double DesignWidth = 250;
     private const double DesignHeight = 390;
     private const double DesignImage = 384;
+    private ChatDock? _dock;
+    private DateTime _nextFx = DateTime.Now.AddSeconds(8);
     private double _climbTop;
     private const int GwlExStyle = -20, WsExTransparent = 0x20;
 
@@ -57,7 +52,6 @@ public partial class MainWindow : Window
             RestoreVisiblePosition();
             ApplyOptions();
             ApplyCharacter();
-            RefreshStats();
             Show();
             Activate();
             _moveTimer.Start();
@@ -180,7 +174,7 @@ public partial class MainWindow : Window
             case Act.Walk:
                 _vx = Approach(_vx, _dir * 150 * scale, dt, 260 * scale);
                 Left += _vx * dt;
-                _phase += dt * (1.15 + Math.Abs(_vx) / (220 * scale));
+                _phase += dt;
                 Top = floor;
                 Face(_vx);
                 PoseWalk(scale);
@@ -203,14 +197,12 @@ public partial class MainWindow : Window
             case Act.Fall:
                 _vy = Math.Min(_vy + 1700 * scale * dt, 900 * scale);
                 Top = Math.Min(Top + _vy * dt, floor);
-                PetTilt.Angle = Math.Clamp(_vy / (40 * scale), -14, 14) * -_dir;
+                PetTilt.Angle = Math.Clamp(_dir * -4, -6, 6);
                 PetSquash.ScaleX = 1;
-                PetSquash.ScaleY = 1 + Math.Min(0.08, _vy / 4000);
+                PetSquash.ScaleY = 1;
                 if (Top >= floor - 0.5)
                 {
                     _vy = 0;
-                    PetSquash.ScaleY = 0.9;
-                    PetSquash.ScaleX = 1.08;
                     Begin(Act.Idle, 2.2);
                 }
                 break;
@@ -244,93 +236,68 @@ public partial class MainWindow : Window
     {
         if (_clips.TryGetValue("walk", out var frames) && frames.Length > 0)
         {
-            var index = (int)(_phase * frames.Length) % frames.Length;
+            var index = (int)(_phase / 0.24) % frames.Length;
             if (index < 0) index += frames.Length;
             if (PetImage.Source != frames[index]) PetImage.Source = frames[index];
         }
-        var step = _phase * Math.PI * 2;
-        var lift = Math.Sin(step);
-        PetBob.Y = lift * -4.2 * scale;
-        PetBob.X = Math.Sin(step) * 1.1 * scale;
-        PetTilt.Angle = Math.Sin(step) * 3.2;
-        var plant = Math.Sin(step * 2);
-        PetSquash.ScaleY = 1 + plant * 0.045;
-        PetSquash.ScaleX = 1 - plant * 0.03;
+        var lift = Math.Sin((_phase / 0.24) * Math.PI);
+        PetBob.Y = -lift * 2.1 * scale;
+        PetBob.X = 0;
+        PetTilt.Angle = 0;
+        PetSquash.ScaleX = 1;
+        PetSquash.ScaleY = 1;
     }
 
     private void PoseRest(double scale)
     {
-        var slow = _act == Act.Sleep ? 0.85 : _act == Act.Sit ? 1.15 : 1.7;
-        var breath = Math.Sin(_clock * slow);
-        PetBob.X = Math.Sin(_clock * 0.6) * 0.6 * scale;
-        PetBob.Y = breath * (_act == Act.Happy ? -2.2 : -1.8) * scale;
-        PetTilt.Angle = _act == Act.Sleep ? 7 * Math.Sin(_clock * 0.35) : Math.Sin(_clock * 0.55) * 1.1;
-        PetSquash.ScaleY = 1 + breath * (_act == Act.Sleep ? 0.012 : 0.02);
-        PetSquash.ScaleX = 1 - breath * 0.012;
-        if (_act == Act.Happy)
-        {
-            var hop = Math.Abs(Math.Sin(_clock * 7.5));
-            PetBob.Y = -hop * 9 * scale;
-            PetSquash.ScaleY = 1 + hop * 0.08;
-            PetSquash.ScaleX = 1 - hop * 0.05;
-            PetTilt.Angle = Math.Sin(_clock * 7.5) * 4;
-        }
+        var breath = Math.Sin(_clock * 1.4);
+        PetBob.X = 0;
+        PetBob.Y = breath * -1.3 * scale;
+        PetTilt.Angle = 0;
+        PetSquash.ScaleX = 1;
+        PetSquash.ScaleY = 1;
     }
 
     private void PoseClimb(double scale)
     {
-        var reach = Math.Sin(_phase * Math.PI * 2);
-        PetBob.Y = reach * -2.5 * scale;
-        PetTilt.Angle = _dir * 10 + reach * 3;
-        PetSquash.ScaleY = 1.04;
-        PetSquash.ScaleX = 0.96;
+        PetBob.Y = Math.Sin(_phase * 6) * -1.4 * scale;
+        PetBob.X = 0;
+        PetTilt.Angle = _dir * 8;
+        PetSquash.ScaleX = 1;
+        PetSquash.ScaleY = 1;
         if (_clips.TryGetValue("climb", out var frames) && frames.Length > 0 && PetImage.Source != frames[0]) PetImage.Source = frames[0];
     }
 
     private void PoseDrag(double scale)
     {
-        var wobble = Math.Sin(_clock * 9);
-        PetBob.Y = -2 * scale;
-        PetBob.X = wobble * 1.5 * scale;
-        PetTilt.Angle = wobble * 6;
-        PetSquash.ScaleX = 0.96;
-        PetSquash.ScaleY = 1.05;
+        PetBob.Y = -1.5 * scale;
+        PetBob.X = 0;
+        PetTilt.Angle = Math.Sin(_clock * 6) * 3;
+        PetSquash.ScaleX = 1;
+        PetSquash.ScaleY = 1;
     }
 
     private void Decide()
     {
-        var stats = _services.Settings.PetBehavior;
-        if (!stats.AutoMovement)
+        if (!_services.Settings.PetBehavior.AutoMovement)
         {
             Begin(Act.Idle, 4);
             return;
         }
-        stats.Hunger = Math.Min(100, stats.Hunger + 1);
-        stats.Energy = Math.Max(0, stats.Energy - 1);
-        if (stats.Energy < 22)
+        var style = _services.Settings.General.StyleId;
+        if (style is "kiem-hiep" or "giang-ho" && DateTime.Now >= _nextFx && _random.Next(100) < 55)
         {
-            Begin(Act.Sleep, 12);
-            ShowSpeech("Mình mệt, ngủ một chút nha.", PetState.Sleep);
-            RefreshStats();
-            return;
-        }
-        if (stats.Hunger > 78)
-        {
-            Begin(Act.Sit, 6);
-            ShowSpeech("Đói bụng rồi… cho mình ăn đi.");
-            RefreshStats();
-            return;
+            PlayFlourish();
+            _nextFx = DateTime.Now.AddSeconds(_random.Next(8, 14));
         }
         var roll = _random.Next(100);
-        if (roll < 48)
+        if (roll < 58)
         {
             _dir = _random.Next(2) == 0 ? -1 : 1;
             Begin(Act.Walk, _random.Next(4, 9));
         }
-        else if (roll < 72) Begin(Act.Sit, _random.Next(4, 8));
-        else if (roll < 84) Begin(Act.Sleep, _random.Next(6, 11));
+        else if (roll < 82) Begin(Act.Sit, _random.Next(4, 8));
         else Begin(Act.Idle, _random.Next(3, 6));
-        RefreshStats();
     }
 
     private void StartClimb(int leaveDir, Rect area)
@@ -378,62 +345,91 @@ public partial class MainWindow : Window
         return new Rect(topLeft, bottomRight);
     }
 
-    private void Pat()
+    public void OpenChat()
     {
-        var stats = _services.Settings.PetBehavior;
-        stats.Happiness = Math.Min(100, stats.Happiness + 6);
-        stats.Affinity = Math.Min(100, stats.Affinity + 2);
-        Begin(Act.Happy, 2.5);
-        ShowSpeech(_random.Next(2) == 0 ? "Nựng đầu dễ chịu quá." : "Hehe, thêm cái nữa đi.");
-        RefreshStats();
+        if (_dock is null)
+        {
+            _dock = new ChatDock(_services);
+            _dock.Closed += (_, _) => _dock = null;
+            _dock.Show();
+        }
+        else
+        {
+            if (!_dock.IsVisible) _dock.Show();
+            _dock.Place();
+            _dock.Activate();
+        }
     }
 
-    private void Nudge()
+    public void RunDailyTask(DailyTask task)
     {
-        ShowSpeech(_lines[_random.Next(_lines.Length)]);
-        if (_act is Act.Sleep or Act.Climb) Begin(Act.Idle, 2);
+        var persona = _services.Settings.Personality;
+        var user = string.IsNullOrWhiteSpace(persona.UserPronoun) ? "bạn" : persona.UserPronoun.Trim();
+        var ask = task.Kind switch
+        {
+            "reply" => $"Đến giờ rep tin nhắn. Soạn giúp {user} 2 hoặc 3 câu trả lời tự nhiên, giữ đúng cách xưng hô. Ghi chú: {task.Note}",
+            "report" => $"Đến giờ điền báo cáo. Soạn bản nháp ngắn để {user} chép vào báo cáo, không tự gửi đi. Ghi chú: {task.Note}",
+            _ => $"Đến giờ việc «{task.Name}». Nhắc {user} và soạn giúp phần viết được. Ghi chú: {task.Note}"
+        };
+        OpenChat();
+        _dock?.Ask(ask);
     }
 
-    private void RefreshStats()
+    public void PlayFlourish()
     {
-        var stats = _services.Settings.PetBehavior;
-        StatText.Text = $"Đói {stats.Hunger}   ·   Vui {stats.Happiness}   ·   Sức {stats.Energy}";
+        if (_services.Settings.General.StyleId == "giang-ho") PalmBlast();
+        else Slash();
     }
 
-    private void Feed_Click(object sender, RoutedEventArgs e)
+    private void Slash()
     {
-        var stats = _services.Settings.PetBehavior;
-        stats.Hunger = Math.Max(0, stats.Hunger - 32);
-        stats.Happiness = Math.Min(100, stats.Happiness + 10);
-        stats.Energy = Math.Min(100, stats.Energy + 6);
-        Begin(Act.Happy, 2.6);
-        ShowSpeech("Ngon quá. Cảm ơn bạn.");
-        RefreshStats();
-        _services.Save();
+        var w = Math.Max(48, ActualWidth);
+        var h = Math.Max(48, ActualHeight);
+        AddStroke($"M {w * 0.1},{h * 0.68} C {w * 0.4},{h * 0.16} {w * 0.62},{h * 0.2} {w * 0.92},{h * 0.6}", System.Windows.Media.Color.FromRgb(244, 250, 255), System.Windows.Media.Color.FromRgb(120, 196, 255));
+        AddStroke($"M {w * 0.16},{h * 0.34} C {w * 0.48},{h * 0.78} {w * 0.7},{h * 0.7} {w * 0.9},{h * 0.3}", System.Windows.Media.Color.FromRgb(255, 255, 255), System.Windows.Media.Color.FromRgb(186, 214, 255));
     }
 
-    private void Pat_Click(object sender, RoutedEventArgs e) => Pat();
-    private void Sleep_Click(object sender, RoutedEventArgs e)
+    private void AddStroke(string data, System.Windows.Media.Color stroke, System.Windows.Media.Color glow)
     {
-        var stats = _services.Settings.PetBehavior;
-        stats.Energy = Math.Min(100, stats.Energy + 18);
-        Begin(Act.Sleep, 12);
-        ShowSpeech("Mình ngủ một lát nha.", PetState.Sleep);
-        RefreshStats();
+        var path = new System.Windows.Shapes.Path
+        {
+            Stroke = new SolidColorBrush(stroke),
+            StrokeThickness = 3.4,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Data = Geometry.Parse(data),
+            IsHitTestVisible = false,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = glow, BlurRadius = 16, ShadowDepth = 0, Opacity = 0.95 }
+        };
+        Fx.Children.Add(path);
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(560)) { BeginTime = TimeSpan.FromMilliseconds(90) };
+        fade.Completed += (_, _) => Fx.Children.Remove(path);
+        path.BeginAnimation(OpacityProperty, fade);
     }
 
-    private void Work_Click(object sender, RoutedEventArgs e)
+    private void PalmBlast()
     {
-        var stats = _services.Settings.PetBehavior;
-        stats.Energy = Math.Max(0, stats.Energy - 8);
-        stats.Happiness = Math.Min(100, stats.Happiness + 4);
-        Begin(Act.Sit, 7);
-        ShowSpeech("Mình ngồi làm cùng bạn đây.");
-        RefreshStats();
-        _services.Save();
+        var size = Math.Max(ActualWidth * 0.34, 28);
+        var ring = new Ellipse
+        {
+            Width = size,
+            Height = size,
+            Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 186, 46)),
+            StrokeThickness = 3,
+            Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(50, 255, 120, 30)),
+            IsHitTestVisible = false,
+            RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+            RenderTransform = new ScaleTransform(1, 1)
+        };
+        System.Windows.Controls.Canvas.SetLeft(ring, (ActualWidth - size) / 2);
+        System.Windows.Controls.Canvas.SetTop(ring, ActualHeight * 0.38);
+        Fx.Children.Add(ring);
+        var fade = new DoubleAnimation(0.95, 0, TimeSpan.FromMilliseconds(520));
+        fade.Completed += (_, _) => Fx.Children.Remove(ring);
+        ring.BeginAnimation(OpacityProperty, fade);
+        ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 2.6, TimeSpan.FromMilliseconds(520)));
+        ring.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 2.6, TimeSpan.FromMilliseconds(520)));
     }
-
-    private void Chat_Click(object sender, RoutedEventArgs e) => new ChatWindow(_services).Show();
 
     private void Pet_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -472,48 +468,42 @@ public partial class MainWindow : Window
             Begin(Act.Fall, 2);
             return;
         }
-        if (e.ClickCount >= 2)
-        {
-            new ChatWindow(_services).Show();
-            return;
-        }
-        var onPet = e.GetPosition(PetImage).Y;
-        if (onPet < PetImage.ActualHeight * 0.42) Pat();
-        else Nudge();
+        OpenChat();
     }
 
     private void Pet_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        ActionBar.Visibility = ActionBar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        RefreshStats();
+        ShowPetMenu();
         e.Handled = true;
     }
 
-    private void More_Click(object sender, RoutedEventArgs e)
+    private void ShowPetMenu()
     {
         var menu = new ContextMenu();
+        menu.Items.Add(Item("Chat", OpenChat));
+        menu.Items.Add(Item("Ra chiêu", PlayFlourish));
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
         var size = new MenuItem { Header = $"Kích thước ({NormalizedSize()}%)" };
         foreach (var preset in new[] { 40, 55, 70, 100 }) size.Items.Add(Item(preset + "%", () => SetSize(preset)));
         size.Items.Add(Item("Nhỏ hơn", () => SetSize(_services.Settings.General.SizePercent - 8)));
         size.Items.Add(Item("To hơn", () => SetSize(_services.Settings.General.SizePercent + 8)));
         menu.Items.Add(size);
-        menu.Items.Add(Item(_services.Settings.General.LaunchWithWindows ? "Tắt khởi động cùng Windows" : "Bật khởi động cùng Windows", () =>
-        {
-            _services.Settings.General.LaunchWithWindows = !_services.Settings.General.LaunchWithWindows;
-            WindowsStartup.Apply(_services.Settings.General.LaunchWithWindows);
-            _services.Save();
-            _services.Tray.SyncStartupItem();
-            ShowSpeech(_services.Settings.General.LaunchWithWindows ? "Mình sẽ mở cùng Windows." : "Mình không tự mở cùng Windows nữa.");
-        }));
+        var style = new MenuItem { Header = "Phong cách" };
+        style.Items.Add(Item("Thường", () => SetStyle("thuong")));
+        style.Items.Add(Item("Kiếm hiệp", () => SetStyle("kiem-hiep")));
+        style.Items.Add(Item("Giang hồ", () => SetStyle("giang-ho")));
+        menu.Items.Add(style);
         menu.Items.Add(Item("Kiểm tra cập nhật", () => new UpdateWindow().Show()));
-        var profiles = new MenuItem { Header = "Tính cách" };
-        foreach (var profile in _services.Settings.Profiles) profiles.Items.Add(Item(profile.Name, () => { _services.ActivatePersonalityProfile(profile); ShowSpeech($"Đã chuyển sang {profile.Name}.", PetState.Happy); }));
-        profiles.Items.Add(Item("Chỉnh sửa profile…", () => new SettingsWindow(_services).Show()));
-        menu.Items.Add(profiles);
-        menu.Items.Add(Item(_services.Settings.General.AlwaysOnTop ? "Bỏ luôn trên cùng" : "Luôn trên cùng", () => { _services.Settings.General.AlwaysOnTop = !_services.Settings.General.AlwaysOnTop; ApplyOptions(); }));
-        menu.PlacementTarget = (System.Windows.Controls.Button)sender;
+        menu.PlacementTarget = PetImage;
         menu.IsOpen = true;
+    }
+
+    private void SetStyle(string style)
+    {
+        _services.Settings.General.StyleId = style;
+        _services.Save();
+        ShowSpeech(style switch { "kiem-hiep" => "Kiếm hiệp.", "giang-ho" => "Giang hồ.", _ => "Bình thường." });
+        if (style != "thuong") PlayFlourish();
     }
 
     private System.Windows.Point CursorDip()

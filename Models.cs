@@ -11,6 +11,7 @@ public sealed class AppSettings
     public PetBehaviorSettings PetBehavior { get; set; } = new();
     public List<PersonalityProfile> Profiles { get; set; } = new();
     public List<Reminder> Reminders { get; set; } = new();
+    public List<DailyTask> DailyTasks { get; set; } = new();
 }
 
 public sealed class GeneralSettings
@@ -23,6 +24,7 @@ public sealed class GeneralSettings
     public string CharacterId { get; set; } = "bpet-cat";
     public string Language { get; set; } = "vi-VN";
     public int SizePercent { get; set; } = 48;
+    public string StyleId { get; set; } = "thuong";
 }
 
 public sealed class AiSettings
@@ -69,6 +71,19 @@ public sealed class PersonalityProfile
     public string Name { get; set; } = "";
     public PersonalitySettings Personality { get; set; } = new();
     public AiProviderKind? Provider { get; set; }
+}
+
+public sealed class DailyTask
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "custom";
+    public string Note { get; set; } = "";
+    public int Hour { get; set; } = 9;
+    public int Minute { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTime LastRun { get; set; }
+    public override string ToString() => $"{Hour:00}:{Minute:00}  {Name}";
 }
 
 public sealed class Reminder

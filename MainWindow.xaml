@@ -17,23 +17,9 @@
         </TransformGroup>
       </Image.RenderTransform>
     </Image>
-    <StackPanel VerticalAlignment="Top" Margin="6,4,6,0" IsHitTestVisible="True">
-      <Border x:Name="ActionBar" Visibility="Collapsed" Background="#FFFFFFF6" CornerRadius="16" Padding="8,6" BorderBrush="#E4D8FF" BorderThickness="1" HorizontalAlignment="Center">
-        <StackPanel>
-          <TextBlock x:Name="StatText" FontSize="11" Foreground="#6E6586" HorizontalAlignment="Center" Margin="0,0,0,4"/>
-          <WrapPanel HorizontalAlignment="Center">
-            <Button Content="Cho ăn" Click="Feed_Click" Padding="8,4" Margin="2" FontSize="12"/>
-            <Button Content="Vỗ về" Click="Pat_Click" Padding="8,4" Margin="2" FontSize="12"/>
-            <Button Content="Ngủ" Click="Sleep_Click" Padding="8,4" Margin="2" FontSize="12"/>
-            <Button Content="Đi làm" Click="Work_Click" Padding="8,4" Margin="2" FontSize="12"/>
-            <Button Content="Chat" Click="Chat_Click" Padding="8,4" Margin="2" FontSize="12"/>
-            <Button Content="Thêm" Click="More_Click" Padding="8,4" Margin="2" FontSize="12" Background="#827E96"/>
-          </WrapPanel>
-        </StackPanel>
-      </Border>
-      <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FFFFFFF8" CornerRadius="16" Padding="12,8" Margin="0,6,0,0" BorderBrush="#E4D8FF" BorderThickness="1" MaxWidth="230" HorizontalAlignment="Center">
-        <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#2C2740" FontSize="13" TextAlignment="Center"/>
-      </Border>
-    </StackPanel>
+    <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FFFFFFF8" CornerRadius="16" Padding="10,6" Margin="4" BorderBrush="#E4D8FF" BorderThickness="1" VerticalAlignment="Top" HorizontalAlignment="Center" IsHitTestVisible="False">
+      <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#2C2740" FontSize="12" TextAlignment="Center" MaxWidth="180"/>
+    </Border>
+    <Canvas x:Name="Fx" IsHitTestVisible="False"/>
   </Grid>
 </Window>
