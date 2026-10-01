@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private DateTime _nextMoodEffect = DateTime.Now.AddSeconds(5);
     private DateTime _nextTripCheck = DateTime.Now.AddSeconds(10);
     private DateTime _cryingUntil = DateTime.MinValue;
+    private int _moodToken;
     private int _heldFrame = -1;
     private double _climbTop;
     private bool _fallWillCry;
@@ -83,7 +84,7 @@ public partial class MainWindow : Window
             Begin(Act.Idle, 2);
         };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; PlaceBubble(); };
-        _speechTimer.Tick += (_, _) => { if (_bubble is not null) _bubble.Hide(); _speechTimer.Stop(); };
+        _speechTimer.Tick += (_, _) => { if (_bubble is not null) _bubble.Hide(); SpeechBubble.Visibility = Visibility.Collapsed; _speechTimer.Stop(); };
         IsVisibleChanged += (_, _) =>
         {
             _animationTimer.Stop();
@@ -416,8 +417,33 @@ public partial class MainWindow : Window
 
     private void ShowMood(string text, int seconds)
     {
-        ShowSpeech(text, PetState.Talking, seconds);
+        var token = ++_moodToken;
+        SpeechText.Text = text;
+        SpeechBubble.BeginAnimation(OpacityProperty, null);
+        SpeechBubble.Opacity = 1;
+        SpeechBubble.Visibility = Visibility.Visible;
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(280))
+        {
+            BeginTime = TimeSpan.FromSeconds(Math.Clamp(seconds, 2, 8)),
+            FillBehavior = FillBehavior.Stop
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (token != _moodToken) return;
+            SpeechBubble.Visibility = Visibility.Collapsed;
+            SpeechBubble.Opacity = 1;
+        };
+        SpeechBubble.BeginAnimation(OpacityProperty, fade);
         KeepAboveApps();
+    }
+
+    private void FlailAndCry(double seconds)
+    {
+        _cryingUntil = DateTime.Now.AddSeconds(seconds);
+        ShowMood("huhu...", (int)Math.Ceiling(seconds));
+        AddFloatingText("huhu...", System.Windows.Media.Color.FromRgb(86, 166, 255), Math.Max(0.35, Height / DesignHeight), -8);
+        _nextMoodEffect = DateTime.Now.AddSeconds(1.2);
+        Begin(Act.Play, seconds);
     }
 
     private static double Approach(double value, double target, double dt, double accel)
@@ -667,8 +693,10 @@ public partial class MainWindow : Window
         var move = new TranslateTransform();
         label.RenderTransform = move;
         label.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-        var x = (ActualWidth - label.DesiredSize.Width) / 2 + xOffset + _random.Next(-10, 11);
-        var y = Math.Max(8, ActualHeight * 0.42 + _random.Next(-8, 9));
+        var width = Math.Max(48, ActualWidth > 0 ? ActualWidth : Width);
+        var height = Math.Max(48, ActualHeight > 0 ? ActualHeight : Height);
+        var x = (width - label.DesiredSize.Width) / 2 + xOffset + _random.Next(-10, 11);
+        var y = Math.Max(8, height * 0.42 + _random.Next(-8, 9));
         System.Windows.Controls.Canvas.SetLeft(label, x);
         System.Windows.Controls.Canvas.SetTop(label, y);
         Fx.Children.Add(label);
@@ -780,10 +808,10 @@ public partial class MainWindow : Window
         foreach (var (label, action, seconds) in new[]
         {
             ("Đứng / chớp mắt", Act.Idle, 8.0), ("Đi bộ", Act.Walk, 8.0),
-            ("Bò", Act.Crawl, 8.0), ("Nằm ngủ", Act.Sleep, 30.0),
-            ("Giãy đành đạch", Act.Play, 5.0)
+            ("Bò", Act.Crawl, 8.0), ("Nằm ngủ", Act.Sleep, 30.0)
         })
             motions.Items.Add(Item(label, () => Begin(action, seconds)));
+        motions.Items.Add(Item("Giãy đành đạch", () => FlailAndCry(5)));
         motions.Items.Add(Item("Vấp ngã / khóc", () => TripAndCry(Math.Max(0.35, Height / DesignHeight))));
         motions.Items.Add(Item("Leo cạnh màn hình", () =>
         {
