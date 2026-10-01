@@ -1,0 +1,35 @@
+{
+  "frameWidth": 224,
+  "frameHeight": 288,
+  "columns": 8,
+  "anchor": [
+    112,
+    280
+  ],
+  "clips": {
+    "walk": {
+      "frames": 32,
+      "seconds": 0.88
+    },
+    "climb": {
+      "frames": 32,
+      "seconds": 1.25
+    },
+    "crawl": {
+      "frames": 32,
+      "seconds": 1.5
+    },
+    "play": {
+      "frames": 32,
+      "seconds": 0.8
+    },
+    "idle": {
+      "frames": 32,
+      "seconds": 4.8
+    },
+    "sleep": {
+      "frames": 32,
+      "seconds": 3.6
+    }
+  }
+}

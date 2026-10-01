@@ -218,7 +218,7 @@ public sealed class CharacterManager
     }
     private static IEnumerable<CharacterInfo> BuiltIns()
     {
-        foreach (var (id, name, attitude) in new[] { ("bpet-my", "Trà My", "Cute"), ("bpet-cat", "BPet", "Cute") })
+        foreach (var (id, name, attitude) in new[] { ("bpet-my", "Trà My — Chibi", "Cute"), ("bpet-my-classic", "Trà My — bản cũ", "Cute"), ("bpet-cat", "BPet", "Cute") })
         {
             var manifest = new CharacterManifest { Id = id, Name = name, RecommendedAttitude = attitude, Animations = Enum.GetNames<PetState>().ToDictionary(x => x, _ => "builtin", StringComparer.OrdinalIgnoreCase) };
             yield return new CharacterInfo(id, name, attitude, true, null, manifest);
@@ -668,4 +668,5 @@ public static class WindowsStartup
         catch { /* HKCU Run is normally writable. A failure here must not block the pet. */ }
     }
 }
+
 

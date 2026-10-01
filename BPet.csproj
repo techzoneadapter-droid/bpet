@@ -17,6 +17,8 @@
     <Content Include="BrowserExtension/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="Assets\*.png" />
     <Resource Include="Assets\my\*.png" />
+    <Resource Include="Assets\chibi\*.png" />
   </ItemGroup>
 </Project>
+
 

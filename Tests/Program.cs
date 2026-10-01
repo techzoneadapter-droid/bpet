@@ -40,6 +40,35 @@ var uiThread = new Thread(() =>
         input.RaiseEvent(enter);
         Check(enter.Handled && input.Text.Length == 0, "Enter preview sends a local command without newline or AI");
         window.Close();
+        foreach (var clip in ChibiAnimation.Names)
+        {
+            var frames = ChibiAnimation.Load(clip);
+            Check(frames.Length == 32 && frames.All(f => f.IsFrozen && f.PixelWidth == 224 && f.PixelHeight == 288), $"{clip}: all 32 packaged frames load and are frozen");
+            foreach (var frame in frames)
+            {
+                var rgba = new System.Windows.Media.Imaging.FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+                var pixels = new byte[224 * 288 * 4];
+                rgba.CopyPixels(pixels, 224 * 4, 0);
+                Check(pixels.Where((_, i) => i % 4 == 3).Count(a => a > 128) > 4000, $"{clip}: visible frame");
+                Check(pixels[3] == 0 && pixels[^1] == 0, $"{clip}: transparent corners");
+            }
+            Check(ChibiAnimation.FrameIndex(clip, ChibiAnimation.Duration(clip)) == 0, $"{clip}: loop returns to first frame");
+            Check(ChibiAnimation.FrameIndex(clip, double.NaN) == 0, $"{clip}: invalid clock is bounded");
+        }
+        var pet = new MainWindow(services);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(MainWindow).GetMethod("LoadClips", flags)!.Invoke(pet, null);
+        var clips = (System.Collections.IDictionary)typeof(MainWindow).GetField("_clips", flags)!.GetValue(pet)!;
+        Check(!ReferenceEquals(clips["walk"], clips["crawl"]), "chibi crawl uses its own animation");
+        typeof(MainWindow).GetMethod("Face", flags)!.Invoke(pet, new object[] { 100.0 });
+        Check(((System.Windows.Media.ScaleTransform)pet.FindName("PetFlip")).ScaleX == 1, "chibi faces right when moving right");
+        typeof(MainWindow).GetMethod("Face", flags)!.Invoke(pet, new object[] { -100.0 });
+        Check(((System.Windows.Media.ScaleTransform)pet.FindName("PetFlip")).ScaleX == -1, "chibi faces left when moving left");
+        services.Settings.General.CharacterId = "bpet-my-classic";
+        typeof(MainWindow).GetMethod("LoadClips", flags)!.Invoke(pet, null);
+        Check(((Array)clips["walk"]!).Length == 2, "classic character remains available");
+        pet.RequestExit(); pet.Close();
+
     }
     catch (Exception error) { uiError = error; }
 });
@@ -106,3 +135,4 @@ sealed class SequenceHandler(params int[] codes) : HttpMessageHandler
         return Task.FromResult(new HttpResponseMessage((HttpStatusCode)code) { Content = new StringContent("{}") });
     }
 }
+

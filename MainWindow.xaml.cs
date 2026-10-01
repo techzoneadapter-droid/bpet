@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private readonly System.Diagnostics.Stopwatch _animationClock = new();
     private TimeSpan _lastFrameTime;
     private double _frameDelta;
-    private readonly Dictionary<string, BitmapImage[]> _clips = new();
+    private readonly Dictionary<string, BitmapSource[]> _clips = new();
     private readonly Random _random = new();
     private bool _dragging;
     private bool _pressed;
@@ -39,9 +39,10 @@ public partial class MainWindow : Window
     private double _vy;
     private double _phase;
     private double _clock;
-    private const double DesignWidth = 250;
-    private const double DesignHeight = 390;
-    private const double DesignImage = 384;
+    private bool IsChibi => _services.Settings.General.CharacterId == "bpet-my";
+    private double DesignWidth => IsChibi ? 280 : 250;
+    private double DesignHeight => IsChibi ? 366 : 390;
+    private double DesignImage => IsChibi ? 360 : 384;
     private ChatDock? _dock;
     private DateTime _nextFx = DateTime.Now.AddSeconds(8);
     private int _heldFrame = -1;
@@ -88,14 +89,26 @@ public partial class MainWindow : Window
 
     private void LoadClips()
     {
-        _clips["idle"] = new[] { LoadFrame("idle") };
-        _clips["walk"] = new[] { LoadFrame("walk1"), LoadFrame("walk2") };
-        _clips["sit"] = new[] { LoadFrame("sit") };
-        _clips["sleep"] = new[] { LoadFrame("sleep") };
-        _clips["happy"] = new[] { LoadFrame("happy") };
-        _clips["raised"] = new[] { LoadFrame("raised") };
-        _clips["climb"] = new[] { LoadFrame("climb") };
-        _clips["play"] = new[] { LoadFrame("happy") };
+        _clips.Clear();
+        if (IsChibi)
+        {
+            foreach (var name in ChibiAnimation.Names) _clips[name] = ChibiAnimation.Load(name);
+            _clips["sit"] = _clips["idle"];
+            _clips["happy"] = _clips["idle"];
+            _clips["raised"] = _clips["play"];
+        }
+        else
+        {
+            _clips["idle"] = new[] { LoadFrame("idle") };
+            _clips["walk"] = new[] { LoadFrame("walk1"), LoadFrame("walk2") };
+            _clips["sit"] = new[] { LoadFrame("sit") };
+            _clips["sleep"] = new[] { LoadFrame("sleep") };
+            _clips["happy"] = new[] { LoadFrame("happy") };
+            _clips["raised"] = new[] { LoadFrame("raised") };
+            _clips["climb"] = new[] { LoadFrame("climb") };
+            _clips["play"] = new[] { LoadFrame("happy") };
+            _clips["crawl"] = _clips["walk"];
+        }
         var clip = string.IsNullOrEmpty(_clip) ? "idle" : _clip;
         _clip = "";
         SetClip(clip);
@@ -103,14 +116,14 @@ public partial class MainWindow : Window
 
     private BitmapImage LoadFrame(string name)
     {
-        var folder = _services.Settings.General.CharacterId == "bpet-my" ? "Assets/my" : "Assets";
+        var folder = _services.Settings.General.CharacterId is "bpet-my" or "bpet-my-classic" ? "Assets/my" : "Assets";
         foreach (var path in new[] { $"{folder}/{name}.png", $"Assets/{name}.png" })
         {
             try
             {
                 var image = new BitmapImage();
                 image.BeginInit();
-                image.UriSource = new Uri($"pack://application:,,,/{path}", UriKind.Absolute);
+                image.UriSource = new Uri($"pack://application:,,,/BPet;component/{path}", UriKind.Absolute);
                 image.CacheOption = BitmapCacheOption.OnLoad;
                 image.EndInit();
                 image.Freeze();
@@ -180,7 +193,13 @@ public partial class MainWindow : Window
         var selected = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.FirstOrDefault();
         if (selected is null) return;
         _services.Settings.General.CharacterId = selected.Id;
-        if (IsLoaded) LoadClips();
+        if (IsLoaded)
+        {
+            LoadClips();
+            ApplySize();
+            _phase = 0;
+            PetFlip.ScaleX = _dir > 0 ? (IsChibi ? 1 : -1) : (IsChibi ? -1 : 1);
+        }
     }
 
     public void ShowSpeech(string text, PetState state = PetState.Talking, int seconds = 7)
@@ -236,26 +255,26 @@ public partial class MainWindow : Window
         switch (_act)
         {
             case Act.Walk:
-                _vx = Approach(_vx, _dir * 150 * scale, dt, 260 * scale);
+                _vx = Approach(_vx, DateTime.Now >= _actUntil.AddSeconds(-0.65) ? 0 : _dir * 150 * scale, dt, 260 * scale);
                 Left += _vx * dt;
-                _phase += dt;
+                _phase += dt * Math.Abs(_vx) / (150 * scale);
                 Top = floor;
                 Face(_vx);
                 PoseWalk();
                 if (Left <= area.Left + 1) StartClimb(1, area);
                 else if (Left >= area.Right - Width - 1) StartClimb(-1, area);
-                else if (DateTime.Now >= _actUntil) Begin(Act.Idle, 1.6);
+                else if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 1) Begin(Act.Idle, 1.6);
                 break;
             case Act.Crawl:
-                _vx = Approach(_vx, _dir * 72 * scale, dt, 180 * scale);
+                _vx = Approach(_vx, DateTime.Now >= _actUntil.AddSeconds(-0.45) ? 0 : _dir * 72 * scale, dt, 180 * scale);
                 Left += _vx * dt;
-                _phase += dt;
+                _phase += dt * Math.Abs(_vx) / (72 * scale);
                 Top = floor;
                 Face(_vx);
                 PoseCrawl();
                 if (Left <= area.Left + 1) StartClimb(1, area);
                 else if (Left >= area.Right - Width - 1) StartClimb(-1, area);
-                else if (DateTime.Now >= _actUntil) Begin(Act.Play, 2.4);
+                else if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 1) Begin(Act.Play, 2.4);
                 break;
             case Act.Play:
                 _vx = Approach(_vx, 0, dt, 420 * scale);
@@ -290,6 +309,7 @@ public partial class MainWindow : Window
                 }
                 break;
             default:
+                _phase += dt;
                 _vx = Approach(_vx, 0, dt, 340 * scale);
                 if (Math.Abs(_vx) > 1) Left += _vx * dt;
                 Top = floor;
@@ -312,14 +332,14 @@ public partial class MainWindow : Window
     private void Face(double velocity)
     {
         if (Math.Abs(velocity) < 8) return;
-        PetFlip.ScaleX = velocity > 0 ? -1 : 1;
+        PetFlip.ScaleX = velocity > 0 ? (IsChibi ? 1 : -1) : (IsChibi ? -1 : 1);
     }
 
     private void PoseWalk() => Hold("walk", 6, 1, 1, 0);
-    private void PoseCrawl() => Hold("walk", 4, 1.03, 0.92, 0);
+    private void PoseCrawl() => Hold("crawl", 4, IsChibi ? 1 : 1.03, IsChibi ? 1 : 0.92, 0);
     private void PosePlay()
     {
-        // Use one pose with a continuous sway; unrelated full-body poses pop.
+        if (IsChibi) { Hold("play", 1, 1, 1, 0); return; }
         var sway = Math.Sin(_phase * Math.PI * 2);
         Hold("play", 1, 1, 1 + sway * 0.015, sway * 3);
     }
@@ -328,7 +348,7 @@ public partial class MainWindow : Window
     {
         if (_clips.TryGetValue(clip, out var frames) && frames.Length > 0)
         {
-            var index = (int)Math.Floor(_phase * fps) % frames.Length;
+            var index = IsChibi ? ChibiAnimation.FrameIndex(clip, _phase) : (int)Math.Floor(_phase * fps) % frames.Length;
             if (_clip != clip || index != _heldFrame)
             {
                 _clip = clip;
@@ -352,17 +372,29 @@ public partial class MainWindow : Window
         PetGhost.Opacity = 0;
     }
 
-    private void PoseRest(double scale) =>
-        Pose(1, 1, 0, Math.Sin(_clock * 1.4) * -0.6 * scale);
+    private void PoseRest(double scale)
+    {
+        if (IsChibi)
+            Hold(_act == Act.Sleep ? "sleep" : "idle", 1, 1, 1, 0);
+        else Pose(1, 1, 0, Math.Sin(_clock * 1.4) * -0.6 * scale);
+    }
 
     private void PoseClimb()
     {
+        if (IsChibi) { Hold("climb", 1, 1, 1, 0); return; }
         var sway = Math.Sin(_phase * Math.PI * 2 * 1.2);
         Pose(1, 1, _dir * sway * 3, sway * 0.8);
     }
 
-    private void PoseDrag(double scale) =>
-        Pose(1, 1, Math.Sin(_clock * 3) * 1.5, -0.5 * scale);
+    private void PoseDrag(double scale)
+    {
+        if (IsChibi)
+        {
+            _phase += _frameDelta;
+            Hold("raised", 1, 1, 1, Math.Sin(_clock * 3) * 1.5);
+        }
+        else Pose(1, 1, Math.Sin(_clock * 3) * 1.5, -0.5 * scale);
+    }
 
     private void Decide()
     {
@@ -389,7 +421,7 @@ public partial class MainWindow : Window
             Begin(Act.Crawl, _random.Next(3, 6));
         }
         else if (roll < 80) Begin(Act.Play, _random.Next(2, 4));
-        else if (roll < 92) Begin(Act.Sit, _random.Next(3, 6));
+        else if (roll < 92) Begin(IsChibi ? Act.Sleep : Act.Sit, _random.Next(8, 15));
         else Begin(Act.Idle, _random.Next(2, 4));
     }
 
@@ -407,15 +439,17 @@ public partial class MainWindow : Window
     {
         // Reactions while airborne must not snap the window back to the floor.
         if ((_act is Act.Climb or Act.Fall) && act != Act.Fall) return;
+        var sameAction = _act == act;
         _act = act;
         _actUntil = DateTime.Now.AddSeconds(seconds);
         if (act == Act.Fall) _vy = 0;
-        if (act is Act.Walk or Act.Crawl) PetFlip.ScaleX = _dir > 0 ? -1 : 1;
-        _phase = 0;
+        if (act is Act.Walk or Act.Crawl) PetFlip.ScaleX = _dir > 0 ? (IsChibi ? 1 : -1) : (IsChibi ? -1 : 1);
+        if (!sameAction) _phase = 0;
         _heldFrame = -1;
         SetClip(act switch
         {
-            Act.Walk or Act.Crawl => "walk",
+            Act.Walk => "walk",
+            Act.Crawl => "crawl",
             Act.Play => "play",
             Act.Sit => "sit",
             Act.Sleep => "sleep",
@@ -602,6 +636,22 @@ public partial class MainWindow : Window
             }));
         }
         menu.Items.Add(chars);
+        var motions = new MenuItem { Header = "Động tác" };
+        foreach (var (label, action, seconds) in new[]
+        {
+            ("Đứng / chớp mắt", Act.Idle, 8.0), ("Đi bộ", Act.Walk, 8.0),
+            ("Bò", Act.Crawl, 8.0), ("Nằm ngủ", Act.Sleep, 30.0),
+            ("Giãy đành đạch", Act.Play, 5.0)
+        })
+            motions.Items.Add(Item(label, () => Begin(action, seconds)));
+        motions.Items.Add(Item("Leo cạnh màn hình", () =>
+        {
+            var area = WorkAreaDip();
+            _act = Act.Idle;
+            Left = _dir > 0 ? area.Right - Width : area.Left;
+            StartClimb(_dir > 0 ? -1 : 1, area);
+        }));
+        menu.Items.Add(motions);
         var size = new MenuItem { Header = $"Kích thước ({NormalizedSize()}%)" };
         foreach (var preset in new[] { 40, 55, 70, 100 }) size.Items.Add(Item(preset + "%", () => SetSize(preset)));
         size.Items.Add(Item("Nhỏ hơn", () => SetSize(_services.Settings.General.SizePercent - 8)));
@@ -654,3 +704,4 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
+
