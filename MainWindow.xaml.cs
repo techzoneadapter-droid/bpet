@@ -17,7 +17,12 @@ public partial class MainWindow : Window
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _speechTimer = new() { Interval = TimeSpan.FromSeconds(6) };
-    private TimeSpan? _lastRender;
+    private readonly DispatcherTimer _animationTimer = new(DispatcherPriority.Render)
+    {
+        Interval = TimeSpan.FromSeconds(1.0 / 60)
+    };
+    private readonly System.Diagnostics.Stopwatch _animationClock = new();
+    private TimeSpan _lastFrameTime;
     private double _frameDelta;
     private readonly Dictionary<string, BitmapImage[]> _clips = new();
     private readonly Random _random = new();
@@ -48,6 +53,13 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _services = services;
+        SourceInitialized += (_, _) =>
+        {
+            // Use a stable software surface for this small per-pixel transparent window.
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
+        };
+        _animationTimer.Tick += (_, _) => Animate();
         Loaded += (_, _) =>
         {
             LoadClips();
@@ -62,9 +74,14 @@ public partial class MainWindow : Window
         _speechTimer.Tick += (_, _) => { if (_bubble is not null) _bubble.Hide(); _speechTimer.Stop(); };
         IsVisibleChanged += (_, _) =>
         {
-            CompositionTarget.Rendering -= OnRendering;
-            _lastRender = null;
-            if (IsVisible) CompositionTarget.Rendering += OnRendering;
+            _animationTimer.Stop();
+            _animationClock.Reset();
+            _lastFrameTime = TimeSpan.Zero;
+            if (IsVisible)
+            {
+                _animationClock.Start();
+                _animationTimer.Start();
+            }
         };
         LostMouseCapture += (_, _) => FinishDrag();
     }
@@ -107,6 +124,7 @@ public partial class MainWindow : Window
     public void ApplyOptions()
     {
         Topmost = _services.Settings.General.AlwaysOnTop;
+        if (_bubble is not null) _bubble.Topmost = Topmost;
         ApplySize();
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero) return;
@@ -167,7 +185,7 @@ public partial class MainWindow : Window
 
     public void ShowSpeech(string text, PetState state = PetState.Talking, int seconds = 7)
     {
-        _bubble ??= new BubbleWindow();
+        _bubble ??= new BubbleWindow { Owner = this, Topmost = Topmost };
         if (!_bubble.IsVisible) _bubble.Show();
         _bubble.SetText(text);
         PlaceBubble();
@@ -191,14 +209,14 @@ public partial class MainWindow : Window
 
     public void RequestExit() => _exitRequested = true;
 
-    private void OnRendering(object? sender, EventArgs e)
+    private void Animate()
     {
-        if (e is not RenderingEventArgs frame) return;
-        var previous = _lastRender;
-        _lastRender = frame.RenderingTime;
-        if (previous is null) return;
-        var elapsed = (frame.RenderingTime - previous.Value).TotalSeconds;
-        if (elapsed <= 0) return; // WPF may render twice at the same timestamp.
+        // Update before rendering, never move a layered HWND inside Rendering.
+        if (!IsLoaded || !IsVisible) return;
+        var now = _animationClock.Elapsed;
+        var elapsed = (now - _lastFrameTime).TotalSeconds;
+        _lastFrameTime = now;
+        if (elapsed <= 0) return;
         Move(Math.Min(elapsed, 0.05));
     }
 
@@ -627,7 +645,8 @@ public partial class MainWindow : Window
     {
         if (!_exitRequested) { e.Cancel = true; Hide(); if (_bubble is not null) _bubble.Hide(); return; }
         _bubble?.Close();
-        CompositionTarget.Rendering -= OnRendering;
+        _animationTimer.Stop();
+        _animationClock.Stop();
         _speechTimer.Stop();
         _services.Save();
     }
