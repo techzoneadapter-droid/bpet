@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,11 +19,13 @@ public sealed class AppServices : IDisposable
     public PersonalityPromptBuilder PromptBuilder { get; } = new();
     public CharacterManager Characters { get; } = new();
     public ReminderService Reminders { get; }
+    public NewsService News { get; }
     public TrayService Tray { get; }
 
     public AppServices()
     {
         Reminders = new ReminderService(this);
+        News = new NewsService(this);
         Tray = new TrayService(this);
     }
 
@@ -40,6 +44,7 @@ public sealed class AppServices : IDisposable
             Settings.Profiles.Add(new PersonalityProfile { Name = "Mặc định", Personality = Clone(Settings.Personality), Provider = Settings.Ai.Provider });
         WindowsStartup.Apply(Settings.General.LaunchWithWindows);
         Reminders.Start();
+        News.Start();
     }
     public void Save() => Store.Save(Settings);
     public void SavePersonalityProfile(string name)
@@ -66,7 +71,7 @@ public sealed class AppServices : IDisposable
         AiProviderKind.OpenAiCompatible => new OpenAiProvider(Credentials, Settings.Ai, true),
         _ => new OfflineProvider()
     };
-    public void Dispose() { Reminders.Dispose(); Tray.Dispose(); }
+    public void Dispose() { Reminders.Dispose(); News.Dispose(); Tray.Dispose(); }
 }
 
 public sealed class SettingsStore
@@ -438,6 +443,72 @@ public sealed class ReminderService : IDisposable
         catch { /* A reminder must never take the pet down. */ }
     }
     private static string reminderMessage(List<Reminder> due) => due.Count == 1 ? due[0].Message : string.Join(", ", due.Select(x => x.Message));
+    public void Dispose() => _timer.Dispose();
+}
+
+public sealed class NewsService : IDisposable
+{
+    private readonly AppServices _services;
+    private readonly System.Timers.Timer _timer = new(15000);
+    private DateTime _next = DateTime.Now.AddSeconds(25);
+    private int _cursor;
+    private int _busy;
+
+    public NewsService(AppServices services)
+    {
+        _services = services;
+        _timer.Elapsed += (_, _) => Tick();
+    }
+
+    public void Start() => _timer.Start();
+    public void ReportSoon() => _next = DateTime.Now;
+
+    private async void Tick()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _busy, 1) == 1) return;
+        try
+        {
+            if (DateTime.Now < _next) return;
+            var news = _services.Settings.News;
+            if (!news.Enabled) { _next = DateTime.Now.AddMinutes(1); return; }
+            var kinds = new List<string>();
+            if (news.Gold) kinds.Add("gold");
+            if (news.Ai) kinds.Add("ai");
+            if (news.Marketing) kinds.Add("mkt");
+            if (kinds.Count == 0) { _next = DateTime.Now.AddMinutes(5); return; }
+            var kind = kinds[_cursor % kinds.Count];
+            _cursor++;
+            var line = await Fetch(kind);
+            var minutes = Math.Clamp(news.IntervalMinutes, 10, 180);
+            _next = DateTime.Now.AddMinutes(string.IsNullOrWhiteSpace(line) ? 2 : minutes);
+            if (string.IsNullOrWhiteSpace(line)) return;
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                if (Application.Current.MainWindow is MainWindow pet) pet.ShowSpeech(line, PetState.Talking, 14);
+            });
+        }
+        catch { _next = DateTime.Now.AddMinutes(2); }
+        finally { _busy = 0; }
+    }
+
+    private static async Task<string?> Fetch(string kind)
+    {
+        var (prefix, query) = kind switch
+        {
+            "gold" => ("Vàng", "giá vàng SJC hôm nay"),
+            "ai" => ("AI", "tin tức trí tuệ nhân tạo"),
+            _ => ("MKT", "tin tức marketing quảng cáo")
+        };
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BPet-News/1.0");
+        var xml = await client.GetStringAsync("https://news.google.com/rss/search?q=" + Uri.EscapeDataString(query) + "&hl=vi&gl=VN&ceid=VN:vi");
+        var match = Regex.Match(xml, @"<item>\s*<title>([^<]+)</title>");
+        if (!match.Success) return null;
+        var title = WebUtility.HtmlDecode(match.Groups[1].Value).Trim();
+        if (title.Length > 120) title = title[..117] + "…";
+        return prefix + " · " + title;
+    }
+
     public void Dispose() => _timer.Dispose();
 }
 

@@ -13,7 +13,7 @@ namespace BPet;
 
 public partial class MainWindow : Window
 {
-    private enum Act { Idle, Walk, Sit, Sleep, Happy, Climb, Fall }
+    private enum Act { Idle, Walk, Sit, Sleep, Happy, Climb, Fall, Crawl, Play }
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _speechTimer = new() { Interval = TimeSpan.FromSeconds(6) };
@@ -39,7 +39,11 @@ public partial class MainWindow : Window
     private const double DesignImage = 384;
     private ChatDock? _dock;
     private DateTime _nextFx = DateTime.Now.AddSeconds(8);
+    private double _foot;
+    private double _ghost;
+    private int _heldFrame = -1;
     private double _climbTop;
+    private BubbleWindow? _bubble;
     private const int GwlExStyle = -20, WsExTransparent = 0x20;
 
     public MainWindow(AppServices services)
@@ -56,8 +60,8 @@ public partial class MainWindow : Window
             Activate();
             _moveTimer.Start();
         };
-        LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; };
-        _speechTimer.Tick += (_, _) => { SpeechBubble.Visibility = Visibility.Collapsed; _speechTimer.Stop(); };
+        LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; PlaceBubble(); };
+        _speechTimer.Tick += (_, _) => { if (_bubble is not null) _bubble.Hide(); _speechTimer.Stop(); };
         _moveTimer.Tick += (_, _) => Move();
     }
 
@@ -70,6 +74,7 @@ public partial class MainWindow : Window
         _clips["happy"] = new[] { LoadFrame("happy") };
         _clips["raised"] = new[] { LoadFrame("raised") };
         _clips["climb"] = new[] { LoadFrame("climb") };
+        _clips["play"] = new[] { LoadFrame("happy"), LoadFrame("idle"), LoadFrame("raised") };
         var clip = string.IsNullOrEmpty(_clip) ? "idle" : _clip;
         _clip = "";
         SetClip(clip);
@@ -123,6 +128,8 @@ public partial class MainWindow : Window
         Height = DesignHeight * scale;
         PetImage.Width = DesignWidth * scale;
         PetImage.Height = DesignImage * scale;
+        PetGhost.Width = DesignWidth * scale;
+        PetGhost.Height = DesignImage * scale;
         GroundShadow.Width = 92 * scale;
         GroundShadow.Height = Math.Max(6, 14 * scale);
         SpeechBubble.MaxWidth = Math.Max(120, 230 * scale);
@@ -154,14 +161,28 @@ public partial class MainWindow : Window
         if (IsLoaded) LoadClips();
     }
 
-    public void ShowSpeech(string text, PetState state = PetState.Talking)
+    public void ShowSpeech(string text, PetState state = PetState.Talking, int seconds = 7)
     {
-        SpeechText.Text = text;
-        SpeechBubble.Visibility = Visibility.Visible;
+        _bubble ??= new BubbleWindow();
+        if (!_bubble.IsVisible) _bubble.Show();
+        _bubble.SetText(text);
+        PlaceBubble();
+        _speechTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(seconds, 4, 20));
         _speechTimer.Stop();
         _speechTimer.Start();
+        SpeechBubble.Visibility = Visibility.Collapsed;
         if (state == PetState.Sleep) Begin(Act.Sleep, 8);
         else if (state == PetState.Happy) Begin(Act.Happy, 2.4);
+    }
+
+    private void PlaceBubble()
+    {
+        if (_bubble is null || !_bubble.IsVisible) return;
+        _bubble.Left = Left + (Width - _bubble.Width) / 2;
+        var top = Top - _bubble.Height - 6;
+        var area = SystemParameters.WorkArea;
+        if (top < area.Top) top = Top + Height + 6;
+        _bubble.Top = top;
     }
 
     public void RequestExit() => _exitRequested = true;
@@ -189,21 +210,40 @@ public partial class MainWindow : Window
                 _phase += dt;
                 Top = floor;
                 Face(_vx);
-                PoseWalk(scale);
+                PoseWalk();
                 if (Left <= area.Left + 1) StartClimb(1, area);
                 else if (Left >= area.Right - Width - 1) StartClimb(-1, area);
-                else if (DateTime.Now >= _actUntil) Begin(Act.Idle, 2.4);
+                else if (DateTime.Now >= _actUntil) Begin(Act.Idle, 1.6);
+                break;
+            case Act.Crawl:
+                _vx = Approach(_vx, _dir * 72 * scale, dt, 180 * scale);
+                Left += _vx * dt;
+                _phase += dt;
+                Top = floor;
+                Face(_vx);
+                PoseCrawl();
+                if (Left <= area.Left + 1) StartClimb(1, area);
+                else if (Left >= area.Right - Width - 1) StartClimb(-1, area);
+                else if (DateTime.Now >= _actUntil) Begin(Act.Play, 2.4);
+                break;
+            case Act.Play:
+                _vx = Approach(_vx, 0, dt, 420 * scale);
+                if (Math.Abs(_vx) > 1) Left += _vx * dt;
+                Top = floor;
+                _phase += dt;
+                PosePlay();
+                if (DateTime.Now >= _actUntil) Begin(Act.Idle, 1.8);
                 break;
             case Act.Climb:
-                Top -= 72 * scale * dt;
-                _phase += dt * 2.1;
-                PoseClimb(scale);
+                Top -= 78 * scale * dt;
+                _phase += dt;
+                PoseClimb();
                 if (Top <= _climbTop || DateTime.Now >= _actUntil)
                 {
                     _dir = Left <= area.Left + Width ? 1 : -1;
                     Left = Math.Clamp(Left + _dir * 28 * scale, area.Left + 8, Math.Max(area.Left + 8, area.Right - Width - 8));
                     _vx = _dir * 40 * scale;
-                    Begin(Act.Walk, 5);
+                    Begin(_random.Next(100) < 40 ? Act.Play : Act.Walk, 4);
                 }
                 break;
             case Act.Fall:
@@ -222,7 +262,7 @@ public partial class MainWindow : Window
                 _vx = Approach(_vx, 0, dt, 340 * scale);
                 if (Math.Abs(_vx) > 1) Left += _vx * dt;
                 Top = floor;
-                if (Math.Abs(_vx) > 22) PoseWalk(scale);
+                if (Math.Abs(_vx) > 22) PoseWalk();
                 else PoseRest(scale);
                 if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 10) Decide();
                 break;
@@ -244,20 +284,46 @@ public partial class MainWindow : Window
         PetFlip.ScaleX = velocity > 0 ? -1 : 1;
     }
 
-    private void PoseWalk(double scale)
+    private void PoseWalk() => Hold("walk", 8, 1, 1, 0);
+    private void PoseCrawl() => Hold("walk", 11, 1.1, 0.66, 0);
+    private void PosePlay()
     {
-        if (_clips.TryGetValue("walk", out var frames) && frames.Length > 0)
+        var beat = (int)(_phase * 3.4);
+        Hold("play", 3.4, 1, beat % 2 == 0 ? 0.96 : 1.05, beat % 2 == 0 ? -8 : 8);
+    }
+
+    private void Hold(string clip, double fps, double scaleX, double scaleY, double tilt)
+    {
+        if (_clips.TryGetValue(clip, out var frames) && frames.Length > 0)
         {
-            var index = (int)(_phase / 0.24) % frames.Length;
+            var index = (int)Math.Floor(_phase * fps) % frames.Length;
             if (index < 0) index += frames.Length;
-            if (PetImage.Source != frames[index]) PetImage.Source = frames[index];
+            if (index != _heldFrame)
+            {
+                if (PetImage.Source is not null)
+                {
+                    PetGhost.Source = PetImage.Source;
+                    GhostFlip.ScaleX = PetFlip.ScaleX;
+                    GhostShift.X = _dir * -16;
+                    _ghost = 0.45;
+                }
+                _heldFrame = index;
+                PetImage.Source = frames[index];
+                _foot = -7;
+            }
         }
-        var lift = Math.Sin((_phase / 0.24) * Math.PI);
-        PetBob.Y = -lift * 2.1 * scale;
+        PetSquash.ScaleX = scaleX;
+        PetSquash.ScaleY = scaleY;
+        PetTilt.Angle = tilt;
         PetBob.X = 0;
-        PetTilt.Angle = 0;
-        PetSquash.ScaleX = 1;
-        PetSquash.ScaleY = 1;
+        PetBob.Y = _foot;
+        _foot *= 0.78;
+        if (_ghost > 0)
+        {
+            _ghost -= 0.09;
+            PetGhost.Opacity = Math.Max(0, _ghost);
+        }
+        else PetGhost.Opacity = 0;
     }
 
     private void PoseRest(double scale)
@@ -270,13 +336,15 @@ public partial class MainWindow : Window
         PetSquash.ScaleY = 1;
     }
 
-    private void PoseClimb(double scale)
+    private void PoseClimb()
     {
-        PetBob.Y = Math.Sin(_phase * 6) * -1.4 * scale;
+        var beat = (int)(_phase * 5.5) % 2;
+        PetTilt.Angle = _dir * (beat == 0 ? -10 : 9);
+        PetBob.Y = beat == 0 ? -6 : 2;
         PetBob.X = 0;
-        PetTilt.Angle = _dir * 8;
-        PetSquash.ScaleX = 1;
-        PetSquash.ScaleY = 1;
+        PetSquash.ScaleX = beat == 0 ? 0.96 : 1.04;
+        PetSquash.ScaleY = beat == 0 ? 1.06 : 0.96;
+        PetGhost.Opacity = 0;
         if (_clips.TryGetValue("climb", out var frames) && frames.Length > 0 && PetImage.Source != frames[0]) PetImage.Source = frames[0];
     }
 
@@ -303,13 +371,19 @@ public partial class MainWindow : Window
             _nextFx = DateTime.Now.AddSeconds(_random.Next(8, 14));
         }
         var roll = _random.Next(100);
-        if (roll < 58)
+        if (roll < 42)
         {
             _dir = _random.Next(2) == 0 ? -1 : 1;
-            Begin(Act.Walk, _random.Next(4, 9));
+            Begin(Act.Walk, _random.Next(4, 8));
         }
-        else if (roll < 82) Begin(Act.Sit, _random.Next(4, 8));
-        else Begin(Act.Idle, _random.Next(3, 6));
+        else if (roll < 62)
+        {
+            _dir = _random.Next(2) == 0 ? -1 : 1;
+            Begin(Act.Crawl, _random.Next(3, 6));
+        }
+        else if (roll < 80) Begin(Act.Play, _random.Next(2, 4));
+        else if (roll < 92) Begin(Act.Sit, _random.Next(3, 6));
+        else Begin(Act.Idle, _random.Next(2, 4));
     }
 
     private void StartClimb(int leaveDir, Rect area)
@@ -325,10 +399,13 @@ public partial class MainWindow : Window
         _act = act;
         _actUntil = DateTime.Now.AddSeconds(seconds);
         if (act == Act.Fall) _vy = 80;
-        if (act == Act.Walk) PetFlip.ScaleX = _dir > 0 ? -1 : 1;
+        if (act is Act.Walk or Act.Crawl) PetFlip.ScaleX = _dir > 0 ? -1 : 1;
+        _phase = 0;
+        _heldFrame = -1;
         SetClip(act switch
         {
-            Act.Walk => "walk",
+            Act.Walk or Act.Crawl => "walk",
+            Act.Play => "play",
             Act.Sit => "sit",
             Act.Sleep => "sleep",
             Act.Happy => "happy",
@@ -342,6 +419,7 @@ public partial class MainWindow : Window
     {
         if (_clip == clip && PetImage.Source is not null) return;
         _clip = clip;
+        _heldFrame = -1;
         if (_clips.TryGetValue(clip, out var frames) && frames.Length > 0) PetImage.Source = frames[0];
     }
 
@@ -549,7 +627,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!_exitRequested) { e.Cancel = true; Hide(); }
+        if (!_exitRequested) { e.Cancel = true; Hide(); if (_bubble is not null) _bubble.Hide(); return; }
+        _bubble?.Close();
         _moveTimer.Stop();
         _services.Save();
     }

@@ -10,7 +10,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(AppServices services)
     {
         InitializeComponent(); _services = services;
-        _panels = new() { ["General"] = GeneralPanel, ["Character"] = CharacterPanel, ["AI Provider"] = AiPanel, ["AI Personality"] = PersonalityPanel, ["Relationship"] = RelationshipPanel, ["Pet Behavior"] = BehaviorPanel, ["Việc hàng ngày"] = TasksPanel, ["Memory"] = InfoPanel, ["Advanced"] = InfoPanel, ["About"] = InfoPanel };
+        _panels = new() { ["General"] = GeneralPanel, ["Character"] = CharacterPanel, ["AI Provider"] = AiPanel, ["AI Personality"] = PersonalityPanel, ["Relationship"] = RelationshipPanel, ["Pet Behavior"] = BehaviorPanel, ["Việc hàng ngày"] = TasksPanel, ["Báo tin"] = NewsPanel, ["Memory"] = InfoPanel, ["Advanced"] = InfoPanel, ["About"] = InfoPanel };
         LoadSettings();
     }
     private void LoadSettings()
@@ -27,6 +27,8 @@ public partial class SettingsWindow : Window
         var size = s.General.SizePercent is < 35 or > 140 ? 48 : s.General.SizePercent;
         PetSize.Value = size; SizeLabel.Text = size + "%";
         PetStyle.SelectedIndex = s.General.StyleId switch { "kiem-hiep" => 1, "giang-ho" => 2, _ => 0 };
+        NewsEnabled.IsChecked = s.News.Enabled; NewsGold.IsChecked = s.News.Gold; NewsAi.IsChecked = s.News.Ai; NewsMkt.IsChecked = s.News.Marketing;
+        NewsInterval.Value = Math.Clamp(s.News.IntervalMinutes, 10, 180); NewsIntervalLabel.Text = (int)NewsInterval.Value + " phút";
         ReloadTasks();
     }
     private static void Select(System.Windows.Controls.ComboBox combo, string text) { foreach (System.Windows.Controls.ComboBoxItem item in combo.Items) if ((string)item.Content == text) { combo.SelectedItem = item; break; } }
@@ -121,6 +123,16 @@ public partial class SettingsWindow : Window
         var user = string.IsNullOrWhiteSpace(p.UserPronoun) ? "bạn" : p.UserPronoun.Trim();
         PreviewText.Text = $"{user} ơi, {self} ở đây. Cứ gọi {self} khi cần.";
     }
+    private void NewsInterval_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded || NewsIntervalLabel is null) return;
+        NewsIntervalLabel.Text = (int)e.NewValue + " phút";
+    }
+    private void NewsNow_Click(object sender, RoutedEventArgs e)
+    {
+        SaveValues(true);
+        _services.News.ReportSoon();
+    }
     private void PetStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
@@ -159,6 +171,6 @@ public partial class SettingsWindow : Window
         s.Ai.Provider = Provider.SelectedIndex switch { 1 => AiProviderKind.OpenAI, 2 => AiProviderKind.Gemini, 3 => AiProviderKind.OpenAiCompatible, _ => AiProviderKind.None }; s.Ai.Streaming = Streaming.IsChecked == true; s.Ai.CustomBaseUrl = BaseUrl.Text.Trim(); s.Ai.CustomModelId = ""; if (s.Ai.Provider == AiProviderKind.Gemini) { s.Ai.GeminiModel = GeminiProvider.GeminiModelName(Model.Text); Model.Text = s.Ai.GeminiModel; } else s.Ai.OpenAiModel = Model.Text.Trim();
         var secretName = s.Ai.Provider switch { AiProviderKind.OpenAI => "openai", AiProviderKind.Gemini => "gemini", AiProviderKind.OpenAiCompatible => "custom", _ => "" }; if (!string.IsNullOrWhiteSpace(secretName) && !string.IsNullOrWhiteSpace(ApiKey.Password)) _services.Credentials.Save(secretName, ApiKey.Password);
         p.PetName = PetName.Text.Trim() is { Length: > 0 } name ? name : "BPet"; p.UserName = UserName.Text.Trim() is { Length: > 0 } user ? user : "Bạn"; p.Attitude = Choice(Attitude); p.RelationshipPreset = Choice(RelationshipPreset); p.PetPronoun = PetPronoun.Text.Trim(); p.UserPronoun = UserPronoun.Text.Trim(); p.RelationshipDescription = RelationshipDescription.Text.Trim(); p.Affection = (int)Affection.Value; p.Humor = (int)Humor.Value; p.Formality = (int)Formality.Value; p.Talkativeness = (int)Talkativeness.Value; p.Proactiveness = (int)Proactiveness.Value; p.EmojiUsage = (int)EmojiUsage.Value; p.CustomInstructions = CustomInstructions.Text;
-        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); s.General.StyleId = PetStyle.SelectedIndex switch { 1 => "kiem-hiep", 2 => "giang-ho", _ => "thuong" }; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
+        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); s.General.StyleId = PetStyle.SelectedIndex switch { 1 => "kiem-hiep", 2 => "giang-ho", _ => "thuong" }; s.News.Enabled = NewsEnabled.IsChecked == true; s.News.Gold = NewsGold.IsChecked == true; s.News.Ai = NewsAi.IsChecked == true; s.News.Marketing = NewsMkt.IsChecked == true; s.News.IntervalMinutes = (int)NewsInterval.Value; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
     }
 }

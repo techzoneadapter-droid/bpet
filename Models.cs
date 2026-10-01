@@ -9,6 +9,7 @@ public sealed class AppSettings
     public AiSettings Ai { get; set; } = new();
     public PersonalitySettings Personality { get; set; } = new();
     public PetBehaviorSettings PetBehavior { get; set; } = new();
+    public NewsSettings News { get; set; } = new();
     public List<PersonalityProfile> Profiles { get; set; } = new();
     public List<Reminder> Reminders { get; set; } = new();
     public List<DailyTask> DailyTasks { get; set; } = new();
@@ -72,6 +73,15 @@ public sealed class PersonalityProfile
     public string Name { get; set; } = "";
     public PersonalitySettings Personality { get; set; } = new();
     public AiProviderKind? Provider { get; set; }
+}
+
+public sealed class NewsSettings
+{
+    public bool Enabled { get; set; } = true;
+    public bool Gold { get; set; } = true;
+    public bool Ai { get; set; } = true;
+    public bool Marketing { get; set; } = true;
+    public int IntervalMinutes { get; set; } = 30;
 }
 
 public sealed class DailyTask

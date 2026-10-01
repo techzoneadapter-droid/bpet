@@ -5,6 +5,14 @@
         ShowInTaskbar="False" ResizeMode="NoResize" MouseMove="Pet_MouseMove" MouseLeftButtonUp="Pet_MouseLeftButtonUp">
   <Grid>
     <Ellipse x:Name="GroundShadow" Width="54" Height="8" Fill="#33000000" VerticalAlignment="Bottom" Margin="0,0,0,3" IsHitTestVisible="False"/>
+    <Image x:Name="PetGhost" Stretch="Uniform" VerticalAlignment="Bottom" Width="120" Height="184" Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,1">
+      <Image.RenderTransform>
+        <TransformGroup>
+          <ScaleTransform x:Name="GhostFlip" ScaleX="1" ScaleY="1"/>
+          <TranslateTransform x:Name="GhostShift"/>
+        </TransformGroup>
+      </Image.RenderTransform>
+    </Image>
     <Image x:Name="PetImage" Stretch="Uniform" VerticalAlignment="Bottom" Width="120" Height="184"
            RenderTransformOrigin="0.5,1"
            MouseLeftButtonDown="Pet_MouseLeftButtonDown" MouseRightButtonUp="Pet_MouseRightButtonUp">
