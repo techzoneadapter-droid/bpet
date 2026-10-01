@@ -1,16 +1,18 @@
 <Window x:Class="BPet.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BPet" Width="250" Height="390" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Title="BPet" Width="120" Height="187" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ResizeMode="NoResize" MouseMove="Pet_MouseMove" MouseLeftButtonUp="Pet_MouseLeftButtonUp">
   <Grid>
-    <Ellipse Width="108" Height="16" Fill="#33000000" VerticalAlignment="Bottom" Margin="0,0,0,4" IsHitTestVisible="False"/>
-    <Image x:Name="PetImage" Stretch="Uniform" VerticalAlignment="Bottom" Width="250" Height="384"
+    <Ellipse x:Name="GroundShadow" Width="54" Height="8" Fill="#33000000" VerticalAlignment="Bottom" Margin="0,0,0,3" IsHitTestVisible="False"/>
+    <Image x:Name="PetImage" Stretch="Uniform" VerticalAlignment="Bottom" Width="120" Height="184"
            RenderTransformOrigin="0.5,1"
            MouseLeftButtonDown="Pet_MouseLeftButtonDown" MouseRightButtonUp="Pet_MouseRightButtonUp">
       <Image.RenderTransform>
         <TransformGroup>
           <ScaleTransform x:Name="PetFlip" ScaleX="1" ScaleY="1"/>
+          <ScaleTransform x:Name="PetSquash" ScaleX="1" ScaleY="1"/>
+          <RotateTransform x:Name="PetTilt"/>
           <TranslateTransform x:Name="PetBob"/>
         </TransformGroup>
       </Image.RenderTransform>

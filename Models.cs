@@ -22,6 +22,7 @@ public sealed class GeneralSettings
     public bool LaunchWithWindows { get; set; }
     public string CharacterId { get; set; } = "bpet-cat";
     public string Language { get; set; } = "vi-VN";
+    public int SizePercent { get; set; } = 48;
 }
 
 public sealed class AiSettings

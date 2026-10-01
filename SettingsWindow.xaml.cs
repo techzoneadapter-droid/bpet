@@ -24,6 +24,8 @@ public partial class SettingsWindow : Window
         PetName.Text = p.PetName; UserName.Text = p.UserName; Select(Attitude, p.Attitude); Affection.Value = p.Affection; Humor.Value = p.Humor; Formality.Value = p.Formality; Talkativeness.Value = p.Talkativeness; Proactiveness.Value = p.Proactiveness; EmojiUsage.Value = p.EmojiUsage; CustomInstructions.Text = p.CustomInstructions; ReloadProfiles();
         Select(RelationshipPreset, p.RelationshipPreset); PetPronoun.Text = p.PetPronoun; UserPronoun.Text = p.UserPronoun; RelationshipDescription.Text = p.RelationshipDescription;
         AutoMovement.IsChecked = s.PetBehavior.AutoMovement; Simulation.IsChecked = s.PetBehavior.SimulationEnabled; MovementFrequency.Value = s.PetBehavior.MovementFrequency;
+        var size = s.General.SizePercent is < 35 or > 140 ? 48 : s.General.SizePercent;
+        PetSize.Value = size; SizeLabel.Text = size + "%";
     }
     private static void Select(System.Windows.Controls.ComboBox combo, string text) { foreach (System.Windows.Controls.ComboBoxItem item in combo.Items) if ((string)item.Content == text) { combo.SelectedItem = item; break; } }
     private static string Choice(System.Windows.Controls.ComboBox combo) => (combo.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "";
@@ -40,6 +42,15 @@ public partial class SettingsWindow : Window
         _panels[title].Visibility = Visibility.Visible;
         if (title is "Memory" or "Advanced" or "About") InfoText.Text = title == "Memory" ? "Memory đang để ở chế độ local-only. Nền tảng giữ cấu hình và nhắc việc trên máy; lớp SQLite conversation/memory sẽ được bổ sung khi bắt đầu phần lịch sử chat." : title == "Advanced" ? "BPet không tự chạy lệnh shell, không tự đọc file, clipboard hay xóa dữ liệu. Những tool sau này đều cần cơ chế xin phép rõ ràng." : "BPet — Your AI companion on the desktop. Phiên bản nền tảng WPF cho Windows 10/11.";
     }
+    private void PetSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded || SizeLabel is null) return;
+        var size = (int)Math.Clamp(e.NewValue, 35, 140);
+        SizeLabel.Text = size + "%";
+        _services.Settings.General.SizePercent = size;
+        if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions();
+    }
+    private void PetSize_Save(object sender, System.Windows.Input.MouseButtonEventArgs e) => _services.Save();
     private async void TestConnection_Click(object sender, RoutedEventArgs e)
     {
         if (Provider.SelectedIndex <= 0) { ConnectionStatus.Text = "Hãy chọn OpenAI hoặc Google Gemini trước."; return; }
@@ -107,6 +118,6 @@ public partial class SettingsWindow : Window
         s.Ai.Provider = Provider.SelectedIndex switch { 1 => AiProviderKind.OpenAI, 2 => AiProviderKind.Gemini, 3 => AiProviderKind.OpenAiCompatible, _ => AiProviderKind.None }; s.Ai.Streaming = Streaming.IsChecked == true; s.Ai.CustomBaseUrl = BaseUrl.Text.Trim(); s.Ai.CustomModelId = ""; if (s.Ai.Provider == AiProviderKind.Gemini) { s.Ai.GeminiModel = GeminiProvider.GeminiModelName(Model.Text); Model.Text = s.Ai.GeminiModel; } else s.Ai.OpenAiModel = Model.Text.Trim();
         var secretName = s.Ai.Provider switch { AiProviderKind.OpenAI => "openai", AiProviderKind.Gemini => "gemini", AiProviderKind.OpenAiCompatible => "custom", _ => "" }; if (!string.IsNullOrWhiteSpace(secretName) && !string.IsNullOrWhiteSpace(ApiKey.Password)) _services.Credentials.Save(secretName, ApiKey.Password);
         p.PetName = PetName.Text.Trim() is { Length: > 0 } name ? name : "BPet"; p.UserName = UserName.Text.Trim() is { Length: > 0 } user ? user : "Bạn"; p.Attitude = Choice(Attitude); p.RelationshipPreset = Choice(RelationshipPreset); p.PetPronoun = PetPronoun.Text.Trim(); p.UserPronoun = UserPronoun.Text.Trim(); p.RelationshipDescription = RelationshipDescription.Text.Trim(); p.Affection = (int)Affection.Value; p.Humor = (int)Humor.Value; p.Formality = (int)Formality.Value; p.Talkativeness = (int)Talkativeness.Value; p.Proactiveness = (int)Proactiveness.Value; p.EmojiUsage = (int)EmojiUsage.Value; p.CustomInstructions = CustomInstructions.Text;
-        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
+        s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; s.General.SizePercent = (int)Math.Clamp(PetSize.Value, 35, 140); if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }
     }
 }

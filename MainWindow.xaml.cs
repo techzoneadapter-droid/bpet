@@ -15,8 +15,7 @@ public partial class MainWindow : Window
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _speechTimer = new() { Interval = TimeSpan.FromSeconds(6) };
-    private readonly DispatcherTimer _animTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
-    private readonly DispatcherTimer _moveTimer = new() { Interval = TimeSpan.FromMilliseconds(32) };
+    private readonly DispatcherTimer _moveTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly Dictionary<string, BitmapImage[]> _clips = new();
     private readonly Random _random = new();
     private readonly string[] _lines =
@@ -36,9 +35,15 @@ public partial class MainWindow : Window
     private Act _act = Act.Idle;
     private DateTime _actUntil = DateTime.Now;
     private int _dir = -1;
-    private int _frame;
-    private int _bob;
     private string _clip = "idle";
+    private double _vx;
+    private double _vy;
+    private double _phase;
+    private double _clock;
+    private DateTime _lastTick;
+    private const double DesignWidth = 250;
+    private const double DesignHeight = 390;
+    private const double DesignImage = 384;
     private double _climbTop;
     private const int GwlExStyle = -20, WsExTransparent = 0x20;
 
@@ -55,12 +60,10 @@ public partial class MainWindow : Window
             RefreshStats();
             Show();
             Activate();
-            _animTimer.Start();
             _moveTimer.Start();
         };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; };
         _speechTimer.Tick += (_, _) => { SpeechBubble.Visibility = Visibility.Collapsed; _speechTimer.Stop(); };
-        _animTimer.Tick += (_, _) => Animate();
         _moveTimer.Tick += (_, _) => Move();
     }
 
@@ -90,17 +93,45 @@ public partial class MainWindow : Window
     public void ApplyOptions()
     {
         Topmost = _services.Settings.General.AlwaysOnTop;
+        ApplySize();
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero) return;
         var style = GetWindowLong(handle, GwlExStyle);
         SetWindowLong(handle, GwlExStyle, _services.Settings.General.ClickThrough ? style | WsExTransparent : style & ~WsExTransparent);
     }
 
+    public void SetSize(int percent)
+    {
+        percent = Math.Clamp(percent, 35, 140);
+        _services.Settings.General.SizePercent = percent;
+        ApplySize();
+        _services.Save();
+        ShowSpeech($"Cỡ {percent}%.");
+    }
+
+    private void ApplySize()
+    {
+        var percent = _services.Settings.General.SizePercent;
+        if (percent is < 35 or > 140) percent = 48;
+        var scale = percent / 100.0;
+        Width = DesignWidth * scale;
+        Height = DesignHeight * scale;
+        PetImage.Width = DesignWidth * scale;
+        PetImage.Height = DesignImage * scale;
+        GroundShadow.Width = 92 * scale;
+        GroundShadow.Height = Math.Max(6, 14 * scale);
+        SpeechBubble.MaxWidth = Math.Max(120, 230 * scale);
+        if (!IsLoaded || _dragging) return;
+        var area = WorkAreaDip();
+        Left = Math.Clamp(Left, area.Left, Math.Max(area.Left, area.Right - Width));
+        Top = area.Bottom - Height;
+    }
+
     private void RestoreVisiblePosition()
     {
         var area = SystemParameters.WorkArea;
-        var width = double.IsFinite(Width) && Width > 1 ? Width : 250;
-        var height = double.IsFinite(Height) && Height > 1 ? Height : 390;
+        var width = double.IsFinite(Width) && Width > 1 ? Width : DesignWidth * 0.48;
+        var height = double.IsFinite(Height) && Height > 1 ? Height : DesignHeight * 0.48;
         var desiredLeft = _services.Settings.General.Left;
         var left = double.IsFinite(desiredLeft) ? desiredLeft : area.Right - width - 28;
         var rightLimit = Math.Max(area.Left, area.Right - width);
@@ -129,20 +160,17 @@ public partial class MainWindow : Window
 
     public void RequestExit() => _exitRequested = true;
 
-    private void Animate()
-    {
-        if (!_clips.TryGetValue(_clip, out var frames) || frames.Length == 0) return;
-        _frame = (_frame + 1) % frames.Length;
-        PetImage.Source = frames[_frame];
-        _bob++;
-        PetBob.Y = _clip is "idle" or "sit" ? Math.Sin(_bob * 0.55) * 2.5 : 0;
-    }
-
     private void Move()
     {
+        var now = DateTime.UtcNow;
+        if (_lastTick == default) _lastTick = now;
+        var dt = Math.Clamp((now - _lastTick).TotalSeconds, 0.001, 0.05);
+        _lastTick = now;
+        _clock += dt;
+        var scale = Math.Max(0.35, Height / DesignHeight);
         if (_dragging)
         {
-            SetClip("raised");
+            PoseDrag(scale);
             return;
         }
         var area = WorkAreaDip();
@@ -150,31 +178,123 @@ public partial class MainWindow : Window
         switch (_act)
         {
             case Act.Walk:
-                Left += _dir * 1.45;
+                _vx = Approach(_vx, _dir * 150 * scale, dt, 260 * scale);
+                Left += _vx * dt;
+                _phase += dt * (1.15 + Math.Abs(_vx) / (220 * scale));
                 Top = floor;
-                PetFlip.ScaleX = _dir > 0 ? -1 : 1;
+                Face(_vx);
+                PoseWalk(scale);
                 if (Left <= area.Left + 1) StartClimb(1, area);
                 else if (Left >= area.Right - Width - 1) StartClimb(-1, area);
-                else if (DateTime.Now >= _actUntil) Decide();
+                else if (DateTime.Now >= _actUntil) Begin(Act.Idle, 2.4);
                 break;
             case Act.Climb:
-                Top -= 1.15;
+                Top -= 72 * scale * dt;
+                _phase += dt * 2.1;
+                PoseClimb(scale);
                 if (Top <= _climbTop || DateTime.Now >= _actUntil)
                 {
                     _dir = Left <= area.Left + Width ? 1 : -1;
-                    Left = Math.Clamp(Left + _dir * 36, area.Left + 8, Math.Max(area.Left + 8, area.Right - Width - 8));
+                    Left = Math.Clamp(Left + _dir * 28 * scale, area.Left + 8, Math.Max(area.Left + 8, area.Right - Width - 8));
+                    _vx = _dir * 40 * scale;
                     Begin(Act.Walk, 5);
                 }
                 break;
             case Act.Fall:
-                Top = Math.Min(Top + 26, floor);
-                if (Top >= floor - 1) Begin(Act.Idle, 2.2);
+                _vy = Math.Min(_vy + 1700 * scale * dt, 900 * scale);
+                Top = Math.Min(Top + _vy * dt, floor);
+                PetTilt.Angle = Math.Clamp(_vy / (40 * scale), -14, 14) * -_dir;
+                PetSquash.ScaleX = 1;
+                PetSquash.ScaleY = 1 + Math.Min(0.08, _vy / 4000);
+                if (Top >= floor - 0.5)
+                {
+                    _vy = 0;
+                    PetSquash.ScaleY = 0.9;
+                    PetSquash.ScaleX = 1.08;
+                    Begin(Act.Idle, 2.2);
+                }
                 break;
             default:
+                _vx = Approach(_vx, 0, dt, 340 * scale);
+                if (Math.Abs(_vx) > 1) Left += _vx * dt;
                 Top = floor;
-                if (DateTime.Now >= _actUntil) Decide();
+                if (Math.Abs(_vx) > 22) PoseWalk(scale);
+                else PoseRest(scale);
+                if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 10) Decide();
                 break;
         }
+        GroundShadow.Width = (92 * scale) * PetSquash.ScaleX;
+    }
+
+    private static double Approach(double value, double target, double dt, double accel)
+    {
+        var delta = target - value;
+        var step = accel * dt;
+        if (Math.Abs(delta) <= step) return target;
+        return value + Math.Sign(delta) * step;
+    }
+
+    private void Face(double velocity)
+    {
+        if (Math.Abs(velocity) < 8) return;
+        PetFlip.ScaleX = velocity > 0 ? -1 : 1;
+    }
+
+    private void PoseWalk(double scale)
+    {
+        if (_clips.TryGetValue("walk", out var frames) && frames.Length > 0)
+        {
+            var index = (int)(_phase * frames.Length) % frames.Length;
+            if (index < 0) index += frames.Length;
+            if (PetImage.Source != frames[index]) PetImage.Source = frames[index];
+        }
+        var step = _phase * Math.PI * 2;
+        var lift = Math.Sin(step);
+        PetBob.Y = lift * -4.2 * scale;
+        PetBob.X = Math.Sin(step) * 1.1 * scale;
+        PetTilt.Angle = Math.Sin(step) * 3.2;
+        var plant = Math.Sin(step * 2);
+        PetSquash.ScaleY = 1 + plant * 0.045;
+        PetSquash.ScaleX = 1 - plant * 0.03;
+    }
+
+    private void PoseRest(double scale)
+    {
+        var slow = _act == Act.Sleep ? 0.85 : _act == Act.Sit ? 1.15 : 1.7;
+        var breath = Math.Sin(_clock * slow);
+        PetBob.X = Math.Sin(_clock * 0.6) * 0.6 * scale;
+        PetBob.Y = breath * (_act == Act.Happy ? -2.2 : -1.8) * scale;
+        PetTilt.Angle = _act == Act.Sleep ? 7 * Math.Sin(_clock * 0.35) : Math.Sin(_clock * 0.55) * 1.1;
+        PetSquash.ScaleY = 1 + breath * (_act == Act.Sleep ? 0.012 : 0.02);
+        PetSquash.ScaleX = 1 - breath * 0.012;
+        if (_act == Act.Happy)
+        {
+            var hop = Math.Abs(Math.Sin(_clock * 7.5));
+            PetBob.Y = -hop * 9 * scale;
+            PetSquash.ScaleY = 1 + hop * 0.08;
+            PetSquash.ScaleX = 1 - hop * 0.05;
+            PetTilt.Angle = Math.Sin(_clock * 7.5) * 4;
+        }
+    }
+
+    private void PoseClimb(double scale)
+    {
+        var reach = Math.Sin(_phase * Math.PI * 2);
+        PetBob.Y = reach * -2.5 * scale;
+        PetTilt.Angle = _dir * 10 + reach * 3;
+        PetSquash.ScaleY = 1.04;
+        PetSquash.ScaleX = 0.96;
+        if (_clips.TryGetValue("climb", out var frames) && frames.Length > 0 && PetImage.Source != frames[0]) PetImage.Source = frames[0];
+    }
+
+    private void PoseDrag(double scale)
+    {
+        var wobble = Math.Sin(_clock * 9);
+        PetBob.Y = -2 * scale;
+        PetBob.X = wobble * 1.5 * scale;
+        PetTilt.Angle = wobble * 6;
+        PetSquash.ScaleX = 0.96;
+        PetSquash.ScaleY = 1.05;
     }
 
     private void Decide()
@@ -225,6 +345,8 @@ public partial class MainWindow : Window
     {
         _act = act;
         _actUntil = DateTime.Now.AddSeconds(seconds);
+        if (act == Act.Fall) _vy = 80;
+        if (act == Act.Walk) PetFlip.ScaleX = _dir > 0 ? -1 : 1;
         SetClip(act switch
         {
             Act.Walk => "walk",
@@ -241,7 +363,6 @@ public partial class MainWindow : Window
     {
         if (_clip == clip && PetImage.Source is not null) return;
         _clip = clip;
-        _frame = 0;
         if (_clips.TryGetValue(clip, out var frames) && frames.Length > 0) PetImage.Source = frames[0];
     }
 
@@ -372,6 +493,11 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
+        var size = new MenuItem { Header = $"Kích thước ({NormalizedSize()}%)" };
+        foreach (var preset in new[] { 40, 55, 70, 100 }) size.Items.Add(Item(preset + "%", () => SetSize(preset)));
+        size.Items.Add(Item("Nhỏ hơn", () => SetSize(_services.Settings.General.SizePercent - 8)));
+        size.Items.Add(Item("To hơn", () => SetSize(_services.Settings.General.SizePercent + 8)));
+        menu.Items.Add(size);
         menu.Items.Add(Item(_services.Settings.General.LaunchWithWindows ? "Tắt khởi động cùng Windows" : "Bật khởi động cùng Windows", () =>
         {
             _services.Settings.General.LaunchWithWindows = !_services.Settings.General.LaunchWithWindows;
@@ -398,12 +524,17 @@ public partial class MainWindow : Window
         return source.CompositionTarget.TransformFromDevice.Transform(new System.Windows.Point(point.X, point.Y));
     }
 
+    private int NormalizedSize()
+    {
+        var percent = _services.Settings.General.SizePercent;
+        return percent is < 35 or > 140 ? 48 : percent;
+    }
+
     private static MenuItem Item(string label, Action action) { var item = new MenuItem { Header = label }; item.Click += (_, _) => action(); return item; }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         if (!_exitRequested) { e.Cancel = true; Hide(); }
-        _animTimer.Stop();
         _moveTimer.Stop();
         _services.Save();
     }
