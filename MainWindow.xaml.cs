@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     {
         Interval = TimeSpan.FromSeconds(1.0 / 60)
     };
+    private readonly DispatcherTimer _topmostTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(650)
+    };
     private readonly System.Diagnostics.Stopwatch _animationClock = new();
     private TimeSpan _lastFrameTime;
     private double _frameDelta;
@@ -49,6 +53,8 @@ public partial class MainWindow : Window
     private double _climbTop;
     private BubbleWindow? _bubble;
     private const int GwlExStyle = -20, WsExTransparent = 0x20;
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoActivate = 0x0010, SwpShowWindow = 0x0040;
 
     public MainWindow(AppServices services)
     {
@@ -61,6 +67,7 @@ public partial class MainWindow : Window
                 source.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
         };
         _animationTimer.Tick += (_, _) => Animate();
+        _topmostTimer.Tick += (_, _) => KeepAboveApps();
         Loaded += (_, _) =>
         {
             LoadClips();
@@ -68,7 +75,7 @@ public partial class MainWindow : Window
             ApplyOptions();
             ApplyCharacter();
             Show();
-            Activate();
+            KeepAboveApps();
             Begin(Act.Idle, 2);
         };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; PlaceBubble(); };
@@ -82,6 +89,8 @@ public partial class MainWindow : Window
             {
                 _animationClock.Start();
                 _animationTimer.Start();
+                if (_services.Settings.General.AlwaysOnTop) _topmostTimer.Start();
+                KeepAboveApps();
             }
         };
         LostMouseCapture += (_, _) => FinishDrag();
@@ -138,11 +147,29 @@ public partial class MainWindow : Window
     {
         Topmost = _services.Settings.General.AlwaysOnTop;
         if (_bubble is not null) _bubble.Topmost = Topmost;
+        if (Topmost) _topmostTimer.Start();
+        else _topmostTimer.Stop();
         ApplySize();
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero) return;
         var style = GetWindowLong(handle, GwlExStyle);
         SetWindowLong(handle, GwlExStyle, _services.Settings.General.ClickThrough ? style | WsExTransparent : style & ~WsExTransparent);
+        KeepAboveApps();
+    }
+
+    private void KeepAboveApps()
+    {
+        if (!_services.Settings.General.AlwaysOnTop || !IsVisible) return;
+        PinTopmost(this);
+        if (_bubble is { IsVisible: true } bubble) PinTopmost(bubble);
+    }
+
+    private static void PinTopmost(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return;
+        window.Topmost = true;
+        SetWindowPos(handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate | SwpShowWindow);
     }
 
     public void SetSize(int percent)
@@ -410,19 +437,25 @@ public partial class MainWindow : Window
             _nextFx = DateTime.Now.AddSeconds(_random.Next(8, 14));
         }
         var roll = _random.Next(100);
-        if (roll < 42)
+        if (roll < 28)
         {
             _dir = _random.Next(2) == 0 ? -1 : 1;
-            Begin(Act.Walk, _random.Next(4, 8));
+            Begin(Act.Walk, _random.Next(3, 7));
         }
-        else if (roll < 62)
+        else if (roll < 50)
         {
             _dir = _random.Next(2) == 0 ? -1 : 1;
             Begin(Act.Crawl, _random.Next(3, 6));
         }
-        else if (roll < 80) Begin(Act.Play, _random.Next(2, 4));
-        else if (roll < 92) Begin(IsChibi ? Act.Sleep : Act.Sit, _random.Next(8, 15));
-        else Begin(Act.Idle, _random.Next(2, 4));
+        else if (roll < 66) Begin(Act.Play, _random.Next(3, 6));
+        else if (roll < 82) Begin(IsChibi ? Act.Sleep : Act.Sit, _random.Next(8, 15));
+        else if (roll < 90)
+        {
+            var area = WorkAreaDip();
+            Left = _random.Next(2) == 0 ? area.Left : area.Right - Width;
+            StartClimb(Left <= area.Left + 1 ? 1 : -1, area);
+        }
+        else Begin(Act.Idle, _random.Next(2, 5));
     }
 
     private void StartClimb(int leaveDir, Rect area)
@@ -696,6 +729,7 @@ public partial class MainWindow : Window
         if (!_exitRequested) { e.Cancel = true; Hide(); if (_bubble is not null) _bubble.Hide(); return; }
         _bubble?.Close();
         _animationTimer.Stop();
+        _topmostTimer.Stop();
         _animationClock.Stop();
         _speechTimer.Stop();
         _services.Save();
@@ -703,5 +737,5 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 }
-
