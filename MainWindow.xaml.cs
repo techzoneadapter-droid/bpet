@@ -666,7 +666,7 @@ public partial class MainWindow : Window
         };
         var move = new TranslateTransform();
         label.RenderTransform = move;
-        label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        label.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         var x = (ActualWidth - label.DesiredSize.Width) / 2 + xOffset + _random.Next(-10, 11);
         var y = Math.Max(8, ActualHeight * 0.42 + _random.Next(-8, 9));
         System.Windows.Controls.Canvas.SetLeft(label, x);
