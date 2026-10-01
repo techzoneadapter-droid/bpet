@@ -49,8 +49,12 @@ public partial class MainWindow : Window
     private double DesignImage => IsChibi ? 360 : 384;
     private ChatDock? _dock;
     private DateTime _nextFx = DateTime.Now.AddSeconds(8);
+    private DateTime _nextMoodEffect = DateTime.Now.AddSeconds(5);
+    private DateTime _nextTripCheck = DateTime.Now.AddSeconds(10);
+    private DateTime _cryingUntil = DateTime.MinValue;
     private int _heldFrame = -1;
     private double _climbTop;
+    private bool _fallWillCry;
     private BubbleWindow? _bubble;
     private const int GwlExStyle = -20, WsExTransparent = 0x20;
     private static readonly IntPtr HwndTopmost = new(-1);
@@ -331,8 +335,19 @@ public partial class MainWindow : Window
                 {
                     _vy = 0;
                     _vx = 0;
-                    _act = Act.Idle;
-                    Begin(Act.Idle, 2.2);
+                    if (_fallWillCry)
+                    {
+                        _fallWillCry = false;
+                        _cryingUntil = DateTime.Now.AddSeconds(3.8);
+                        ShowMood("Ui da... huhu...", 4);
+                        AddFloatingText("huhu...", System.Windows.Media.Color.FromRgb(86, 166, 255), scale, -10);
+                        Begin(Act.Play, 3.8);
+                    }
+                    else
+                    {
+                        _act = Act.Idle;
+                        Begin(Act.Idle, 2.2);
+                    }
                 }
                 break;
             default:
@@ -344,8 +359,65 @@ public partial class MainWindow : Window
                 if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 10) Decide();
                 break;
         }
+        MaybeTrip(scale);
+        AmbientEffects(scale);
         Left = Math.Clamp(Left, area.Left, Math.Max(area.Left, area.Right - Width));
         GroundShadow.Width = (92 * scale) * PetSquash.ScaleX;
+    }
+
+    private void MaybeTrip(double scale)
+    {
+        if (_act is not (Act.Walk or Act.Crawl) || Math.Abs(_vx) < 35 || DateTime.Now < _nextTripCheck) return;
+        _nextTripCheck = DateTime.Now.AddSeconds(_random.Next(9, 18));
+        if (_random.Next(100) >= 18) return;
+        TripAndCry(scale);
+    }
+
+    private void TripAndCry(double scale)
+    {
+        _fallWillCry = true;
+        _vy = 0;
+        _vx = _dir * 70 * scale;
+        ShowMood("Ối, vấp rồi!", 3);
+        AddFloatingText("vấp!", System.Windows.Media.Color.FromRgb(255, 130, 130), scale, 0);
+        Begin(Act.Fall, 1.4);
+    }
+
+    private void AmbientEffects(double scale)
+    {
+        if (DateTime.Now < _nextMoodEffect) return;
+        if (_act == Act.Walk && Math.Abs(_vx) > 45)
+        {
+            var hums = new[] { "la la la...", "ngân nga...", "hừm hừm..." };
+            var text = hums[_random.Next(hums.Length)];
+            ShowMood(text, 4);
+            AddFloatingText(text, System.Windows.Media.Color.FromRgb(255, 174, 74), scale, 0);
+            _nextMoodEffect = DateTime.Now.AddSeconds(_random.Next(6, 12));
+        }
+        else if (_act == Act.Sleep)
+        {
+            ShowMood("Khò... khò...", 5);
+            AddFloatingText("zZz", System.Windows.Media.Color.FromRgb(126, 154, 255), scale, 8);
+            _nextMoodEffect = DateTime.Now.AddSeconds(_random.Next(4, 8));
+        }
+        else if (_act == Act.Play && DateTime.Now < _cryingUntil)
+        {
+            var cries = new[] { "huhu...", "đau quá...", "oa oa..." };
+            var text = cries[_random.Next(cries.Length)];
+            ShowMood(text, 3);
+            AddFloatingText(text, System.Windows.Media.Color.FromRgb(86, 166, 255), scale, -8);
+            _nextMoodEffect = DateTime.Now.AddSeconds(1.4);
+        }
+        else
+        {
+            _nextMoodEffect = DateTime.Now.AddSeconds(2);
+        }
+    }
+
+    private void ShowMood(string text, int seconds)
+    {
+        ShowSpeech(text, PetState.Talking, seconds);
+        KeepAboveApps();
     }
 
     private static double Approach(double value, double target, double dt, double accel)
@@ -575,6 +647,41 @@ public partial class MainWindow : Window
         path.BeginAnimation(OpacityProperty, fade);
     }
 
+    private void AddFloatingText(string text, System.Windows.Media.Color color, double scale, double xOffset)
+    {
+        var label = new System.Windows.Controls.TextBlock
+        {
+            Text = text,
+            FontSize = Math.Clamp(18 * scale, 12, 28),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(color),
+            IsHitTestVisible = false,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.White,
+                BlurRadius = 8,
+                ShadowDepth = 0,
+                Opacity = 0.9
+            }
+        };
+        var move = new TranslateTransform();
+        label.RenderTransform = move;
+        label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var x = (ActualWidth - label.DesiredSize.Width) / 2 + xOffset + _random.Next(-10, 11);
+        var y = Math.Max(8, ActualHeight * 0.42 + _random.Next(-8, 9));
+        System.Windows.Controls.Canvas.SetLeft(label, x);
+        System.Windows.Controls.Canvas.SetTop(label, y);
+        Fx.Children.Add(label);
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(1300))
+        {
+            BeginTime = TimeSpan.FromMilliseconds(300)
+        };
+        fade.Completed += (_, _) => Fx.Children.Remove(label);
+        label.BeginAnimation(OpacityProperty, fade);
+        move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, -34 * scale, TimeSpan.FromMilliseconds(1600)));
+        move.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(0, _dir * 10 * scale, TimeSpan.FromMilliseconds(1600)));
+    }
+
     private void PalmBlast()
     {
         var size = Math.Max(ActualWidth * 0.34, 28);
@@ -677,6 +784,7 @@ public partial class MainWindow : Window
             ("Giãy đành đạch", Act.Play, 5.0)
         })
             motions.Items.Add(Item(label, () => Begin(action, seconds)));
+        motions.Items.Add(Item("Vấp ngã / khóc", () => TripAndCry(Math.Max(0.35, Height / DesignHeight))));
         motions.Items.Add(Item("Leo cạnh màn hình", () =>
         {
             var area = WorkAreaDip();
