@@ -22,20 +22,20 @@ public sealed class DesktopAssistant
             if (_powerCountdown is not null) { _powerCountdown.Cancel(); return "Đã hủy lịch tắt/khởi động lại máy của BPet."; }
             return await PowerAsync("/a", "Đã hủy lịch tắt/khởi động lại của Windows.", ct);
         }
-        if (Regex.IsMatch(command, @"^(tat may|tat may tinh|shutdown)(\b|$)"))
+        if (DirectAction(command, @"tat may(?: tinh)?|shutdown"))
         {
             return SchedulePower("/s /t 0", "Máy sẽ tắt sau 60 giây. Nhắn ‘hủy tắt máy’ để dừng. Giữ BPet mở trong lúc đếm ngược.");
         }
-        if (command.StartsWith("khoi dong lai may"))
+        if (DirectAction(command, "khoi dong lai may"))
         {
             return SchedulePower("/r /t 0", "Máy sẽ khởi động lại sau 60 giây. Nhắn ‘hủy khởi động lại’ để dừng. Giữ BPet mở trong lúc đếm ngược.");
         }
-        if (Regex.IsMatch(command, @"^(sleep|ngu may|cho may ngu|che do ngu)(\b|$)"))
+        if (DirectAction(command, @"sleep(?: may)?|ngu may|cho may ngu|che do ngu"))
         {
             var slept = await Task.Run(() => System.Windows.Forms.Application.SetSuspendState(System.Windows.Forms.PowerState.Suspend, false, false));
             return slept ? "Đã thực hiện lệnh ngủ máy." : "Windows chưa cho phép máy vào chế độ ngủ.";
         }
-        if (command.StartsWith("khoa may") || command.StartsWith("khoa man hinh"))
+        if (DirectAction(command, "khoa may|khoa man hinh"))
             return LockWorkStation() ? "Đã khóa màn hình." : "Windows chưa khóa được màn hình.";
         if (command is "tro giup" or "lenh" || command.StartsWith("ban lam duoc gi")) return Help;
         if (command.StartsWith("ket noi trinh duyet") || command.StartsWith("cai tien ich trinh duyet")) { BrowserIntegration.ShowSetup(owner); return "Đã mở hướng dẫn kết nối trình duyệt. Chỉ cần cài tiện ích một lần cho mỗi profile muốn lưu."; }
@@ -88,6 +88,8 @@ public sealed class DesktopAssistant
         value = Regex.Replace(value, @"\s+(?:(?:cho|giup|dum) (?:anh|a|toi|minh|em))(?:\s+(?:nhe|nha|voi))?[.!?]*$", "");
         return value.Trim().TrimEnd('.', '!');
     }
+    public static bool DirectAction(string command, string actions) =>
+        Regex.IsMatch(command, @"^(?:" + actions + @")(?: (?:ngay|di|nhe|nha|voi))*$");
     public static bool IsLocalRequest(string text) =>
         Regex.IsMatch(LocalCommand(text), @"^(mo|tat|xoa|cai|khoi phuc|khoi dong|khoa|nhac|sleep|ngu may|cho may ngu|che do ngu|huy|dung tat may|ket noi trinh duyet|trang thai trinh duyet|tro giup|lenh)\b");
 

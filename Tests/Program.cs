@@ -22,6 +22,30 @@ Check(!DesktopAssistant.IsLocalRequest("Photoshop là gì?"), "question remains 
 var fakeApps = new[] { new InstalledApp("Adobe Photoshop 2026", @"C:\test\Photoshop.lnk"), new InstalledApp("Uninstall Photoshop", @"C:\test\uninstall.lnk") };
 Check(InstalledApps.Match(fakeApps, "photoshop").Single().Name == "Adobe Photoshop 2026", "finds installed Photoshop and excludes uninstaller");
 
+Check(!DesktopAssistant.DirectAction("sleep may la gi?", @"sleep(?: may)?"), "sleep question never executes sleep");
+Exception? uiError = null;
+var uiThread = new Thread(() =>
+{
+    try
+    {
+        using var services = new AppServices();
+        var window = new ChatDock(services);
+        Check(window.Width == 420 && window.Height == 390, "compact chat default size");
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+        var source = System.Windows.Interop.HwndSource.FromHwnd(handle);
+        var input = (System.Windows.Controls.TextBox)window.FindName("Input");
+        input.Text = "trợ giúp";
+        var enter = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, Environment.TickCount, System.Windows.Input.Key.Enter)
+        { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };
+        input.RaiseEvent(enter);
+        Check(enter.Handled && input.Text.Length == 0, "Enter preview sends a local command without newline or AI");
+        window.Close();
+    }
+    catch (Exception error) { uiError = error; }
+});
+uiThread.SetApartmentState(ApartmentState.STA);
+uiThread.Start(); uiThread.Join();
+if (uiError is not null) throw uiError;
 var handler = new SequenceHandler(503, 200);
 using (var client = new HttpClient(handler)) { using var response = await Request(client); Check(response.IsSuccessStatusCode && handler.Calls == 2, "503 retries then succeeds"); }
 handler = new SequenceHandler(401);
