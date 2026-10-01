@@ -29,3 +29,11 @@ Name: "{autoprograms}\BPet"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Mở BPet"; Flags: nowait postinstall skipifsilent
+
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: RestartAfterUpdate
+
+[Code]
+function RestartAfterUpdate: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RESTARTBPET|0}') = '1');
+end;
