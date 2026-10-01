@@ -14,6 +14,7 @@ public partial class ChatDock : Window
     private readonly string _historyPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BPet", "chat-history.json");
     private CancellationTokenSource? _request;
     private bool _busy;
+    private TaskCompletionSource<bool>? _idle;
     private string? _failed;
 
     public ChatDock(AppServices services)
@@ -47,16 +48,24 @@ public partial class ChatDock : Window
     private async void Send_Click(object sender, RoutedEventArgs e) => await SendAsync();
     private async Task SendAsync(string? retry = null)
     {
-        if (_busy) return;
         var text = (retry ?? Input.Text).Trim();
+        if (_busy)
+        {
+            if (!DesktopAssistant.IsLocalRequest(text)) { Status.Text = "Đang trả lời. Bấm Dừng hoặc đợi xong để gửi câu hỏi mới."; return; }
+            var waiting = _idle?.Task;
+            _request?.Cancel();
+            if (waiting is not null) await waiting;
+            await SendAsync(text);
+            return;
+        }
         if (text.Length == 0) return;
         if (text.Length > 12000) { Status.Text = "Tin nhắn quá dài. Hãy chia thành đoạn ngắn hơn."; return; }
         Input.Clear();
         Draw("user", text);
-        _busy = true; SendButton.IsEnabled = false; CancelButton.Visibility = Visibility.Visible; RetryButton.Visibility = Visibility.Collapsed;
+        _busy = true; _idle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously); SendButton.IsEnabled = true; CancelButton.Visibility = Visibility.Visible; RetryButton.Visibility = Visibility.Collapsed;
         _request = new CancellationTokenSource(TimeSpan.FromSeconds(150));
         RefreshProvider();
-        Status.Text = "Đang xử lý… Nếu AI bận, em sẽ tự thử lại tối đa 2 lần.";
+        Status.Text = "Đang thực hiện trên máy…";
         try
         {
             var local = await _assistant.TryRunAsync(text, this, _request.Token);
@@ -65,6 +74,7 @@ public partial class ChatDock : Window
             if (local is not null) reply = local;
             else
             {
+                Status.Text = "Đang hỏi AI… Lệnh trên máy vẫn có thể gửi ngay."; 
                 var context = _history.Where(m => m.Role is "user" or "assistant").TakeLast(30).Append(new ChatMessage("user", text)).ToList();
                 var prompt = _services.PromptBuilder.Build(_services.Settings.Personality) + "\nBạn chỉ trả lời trò chuyện. Các thao tác Windows được bộ lệnh riêng xử lý. Không khẳng định đã mở ứng dụng, tắt máy hay sửa file khi bạn không có kết quả thực thi. Không tự bịa khả năng điều khiển máy.";
                 reply = await _services.CurrentProvider().CompleteAsync(prompt, context, _request.Token);
@@ -86,6 +96,7 @@ public partial class ChatDock : Window
             RetryButton.Visibility = _failed is null ? Visibility.Collapsed : Visibility.Visible;
             if (_failed is not null) Status.Text = "Chưa hoàn tất · có thể thử lại hoặc vào Cài đặt";
             Input.Focus();
+            _idle?.TrySetResult(true);
         }
     }
     private void SaveHistory()

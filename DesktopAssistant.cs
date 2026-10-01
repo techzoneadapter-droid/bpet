@@ -16,9 +16,7 @@ public sealed class DesktopAssistant
 
     public async Task<string?> TryRunAsync(string text, Window owner, CancellationToken ct)
     {
-        var command = Normalize(text);
-        command = Regex.Replace(command, @"^(em oi|bpet oi|bpet|vo oi)[, !:]*", "");
-        command = Regex.Replace(command, @"^(hay |em |giup anh |giup toi )+", "");
+        var command = LocalCommand(text);
         if (command.StartsWith("huy tat may") || command.StartsWith("dung tat may") || command.StartsWith("huy khoi dong lai"))
         {
             if (_powerCountdown is not null) { _powerCountdown.Cancel(); return "Đã hủy lịch tắt/khởi động lại máy của BPet."; }
@@ -26,13 +24,16 @@ public sealed class DesktopAssistant
         }
         if (Regex.IsMatch(command, @"^(tat may|tat may tinh|shutdown)(\b|$)"))
         {
-            if (!Confirm(owner, "Tắt máy sau 60 giây? Hãy lưu công việc đang làm. Có thể nhắn ‘hủy tắt máy’ để dừng.")) return "Đã hủy yêu cầu tắt máy.";
             return SchedulePower("/s /t 0", "Máy sẽ tắt sau 60 giây. Nhắn ‘hủy tắt máy’ để dừng. Giữ BPet mở trong lúc đếm ngược.");
         }
         if (command.StartsWith("khoi dong lai may"))
         {
-            if (!Confirm(owner, "Khởi động lại sau 60 giây? Hãy lưu công việc trước.")) return "Đã hủy yêu cầu.";
             return SchedulePower("/r /t 0", "Máy sẽ khởi động lại sau 60 giây. Nhắn ‘hủy khởi động lại’ để dừng. Giữ BPet mở trong lúc đếm ngược.");
+        }
+        if (Regex.IsMatch(command, @"^(sleep|ngu may|cho may ngu|che do ngu)(\b|$)"))
+        {
+            var slept = await Task.Run(() => System.Windows.Forms.Application.SetSuspendState(System.Windows.Forms.PowerState.Suspend, false, false));
+            return slept ? "Đã thực hiện lệnh ngủ máy." : "Windows chưa cho phép máy vào chế độ ngủ.";
         }
         if (command.StartsWith("khoa may") || command.StartsWith("khoa man hinh"))
             return LockWorkStation() ? "Đã khóa màn hình." : "Windows chưa khóa được màn hình.";
@@ -57,6 +58,7 @@ public sealed class DesktopAssistant
             if (Regex.IsMatch(command, @"^mo (cai dat windows|settings)\b")) { Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true }); return "Đã mở Cài đặt Windows."; }
             var url = Regex.Match(text, @"https?://[^\s<>""']+", RegexOptions.IgnoreCase).Value.TrimEnd('.', ',');
             if (BrowserSessions.SafeUrl(url)) { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return "Đã gửi trang web tới trình duyệt mặc định."; }
+            return InstalledApps.Open(command[3..]);
         }
         if (command.StartsWith("nhac "))
         {
@@ -71,10 +73,23 @@ public sealed class DesktopAssistant
             }
         }
         // Do not let an AI reply pretend it executed an unsupported desktop command.
-        if (Regex.IsMatch(command, @"^(mo|tat|xoa|cai|khoi phuc|khoa|nhac)\b"))
+        if (IsLocalRequest(text))
             return "Em chưa thực hiện được lệnh này. Nhắn ‘trợ giúp’ để xem các lệnh đã hỗ trợ; em không chạy lệnh hệ thống tùy ý từ câu trả lời AI.";
         return null;
     }
+
+    public static string LocalCommand(string text)
+    {
+        var value = Normalize(text);
+        value = Regex.Replace(value, @"^(em oi|bpet oi|bpet|vo oi)[, !:]*", "");
+        value = Regex.Replace(value, @"^(hay |em |giup anh |giup toi )+", "");
+        value = Regex.Replace(value, @"^(bat|khoi chay)\s+", "mo ");
+        value = Regex.Replace(value, @"^mo\s+(?:(?:cho|giup) (?:anh|a|toi|minh|em)\s+)?(?:(?:cai|app|ung dung|phan mem)\s+)?", "mo ");
+        value = Regex.Replace(value, @"\s+(?:(?:cho|giup|dum) (?:anh|a|toi|minh|em))(?:\s+(?:nhe|nha|voi))?[.!?]*$", "");
+        return value.Trim().TrimEnd('.', '!');
+    }
+    public static bool IsLocalRequest(string text) =>
+        Regex.IsMatch(LocalCommand(text), @"^(mo|tat|xoa|cai|khoi phuc|khoi dong|khoa|nhac|sleep|ngu may|cho may ngu|che do ngu|huy|dung tat may|ket noi trinh duyet|trang thai trinh duyet|tro giup|lenh)\b");
 
     private string OpenBrowser(string command, Window owner)
     {
@@ -106,7 +121,6 @@ public sealed class DesktopAssistant
         }
         var count = snapshots.Sum(s => s.Windows.Sum(w => w.Tabs.Count));
         var summary = string.Join("\n", snapshots.Select(s => $"{s.Browser} • {s.At.LocalDateTime:HH:mm dd/MM/yyyy} • {s.Windows.Sum(w => w.Tabs.Count)} tab"));
-        if (!Confirm(owner, $"Mở lại {count} tab trong {snapshots.Count} profile?\n{summary}\n\nCác tab hiện tại vẫn giữ nguyên. Profile có tiện ích cần được mở để nhận yêu cầu.")) return "Đã hủy mở phiên.";
         BrowserSessions.Locked(() => BrowserSessions.Queue(snapshots));
         foreach (var kind in snapshots.Select(s => s.Browser).Distinct()) BrowserIntegration.Open(kind, true);
         return $"Đã xếp yêu cầu mở {count} tab đúng profile, giữ nhóm cửa sổ, thứ tự và tab ghim. Tiện ích nhận lệnh trong khoảng 30 giây; mở đúng profile nếu chưa chạy. Nhắn ‘trạng thái trình duyệt’ để xem kết quả. Không khôi phục nội dung biểu mẫu chưa lưu hoặc vị trí cuộn.";
@@ -147,7 +161,7 @@ public sealed class DesktopAssistant
         if (Process.Start(start) is null) throw new IOException("Chưa mở được ứng dụng.");
     }
     [DllImport("user32.dll")] private static extern bool LockWorkStation();
-    public const string Help = "Bạn có thể nhắn:\n• Tắt máy cho anh / hủy tắt máy\n• Khởi động lại máy / khóa màn hình\n• Mở Chrome / Edge / Cốc Cốc\n• Mở Chrome hôm qua / trình duyệt tối qua\n• Mở trình duyệt ngày 2026-10-01\n• Trạng thái trình duyệt\n• Mở máy tính / Notepad / thư mục tải về\n• Mở https://example.com\n• Nhắc anh uống nước sau 20 phút\n\nPhiên theo ngày cần tiện ích BPet, lưu tối đa 30 ngày trên máy. Không lưu tab ẩn danh, mật khẩu hay nội dung trang. Các lệnh tiện ích chạy được cả khi API AI lỗi.";
+    public const string Help = "Bạn có thể nhắn:\n• Tắt máy cho anh / hủy tắt máy\n• Khởi động lại máy / khóa màn hình\n• Mở Chrome / Edge / Cốc Cốc\n• Mở Chrome hôm qua / trình duyệt tối qua\n• Mở trình duyệt ngày 2026-10-01\n• Trạng thái trình duyệt\n• Mở Photoshop / Zalo / ứng dụng đã cài\n• Sleep máy / khóa màn hình\n• Mở máy tính / Notepad / thư mục tải về\n• Mở https://example.com\n• Nhắc anh uống nước sau 20 phút\n\nPhiên theo ngày cần tiện ích BPet, lưu tối đa 30 ngày trên máy. Không lưu tab ẩn danh, mật khẩu hay nội dung trang. Các lệnh tiện ích chạy được cả khi API AI lỗi.";
 }
 
 public static class BrowserIntegration

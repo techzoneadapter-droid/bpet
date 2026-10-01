@@ -14,6 +14,14 @@ static void Check(bool ok, string label) { if (!ok) throw new Exception(label); 
 var assembly = typeof(AppServices).Assembly;
 var method = assembly.GetType("BPet.AiHttp")!.GetMethod("SendAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 async Task<HttpResponseMessage> Request(HttpClient client, CancellationToken ct = default) => await (Task<HttpResponseMessage>)method.Invoke(null, new object[] { client, (Func<HttpRequestMessage>)(() => new(HttpMethod.Get, "https://example.invalid")), ct })!;
+Check(DesktopAssistant.LocalCommand("mở cho anh cái photoshop") == "mo photoshop", "polite Photoshop command normalized locally");
+Check(DesktopAssistant.LocalCommand("em ơi mở Zalo cho anh") == "mo zalo", "polite app suffix removed");
+Check(DesktopAssistant.IsLocalRequest("sleep máy giúp a"), "sleep routes locally without AI");
+Check(DesktopAssistant.IsLocalRequest("bật ứng dụng Zalo cho anh"), "launch synonym routes locally");
+Check(!DesktopAssistant.IsLocalRequest("Photoshop là gì?"), "question remains AI chat");
+var fakeApps = new[] { new InstalledApp("Adobe Photoshop 2026", @"C:\test\Photoshop.lnk"), new InstalledApp("Uninstall Photoshop", @"C:\test\uninstall.lnk") };
+Check(InstalledApps.Match(fakeApps, "photoshop").Single().Name == "Adobe Photoshop 2026", "finds installed Photoshop and excludes uninstaller");
+
 var handler = new SequenceHandler(503, 200);
 using (var client = new HttpClient(handler)) { using var response = await Request(client); Check(response.IsSuccessStatusCode && handler.Calls == 2, "503 retries then succeeds"); }
 handler = new SequenceHandler(401);
