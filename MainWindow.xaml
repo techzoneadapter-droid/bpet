@@ -1,22 +1,37 @@
 <Window x:Class="BPet.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BPet" Width="214" Height="260" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ShowInTaskbar="False" ResizeMode="NoResize" MouseLeftButtonDown="Pet_MouseLeftButtonDown" MouseLeftButtonUp="Pet_MouseLeftButtonUp" MouseMove="Pet_MouseMove" MouseRightButtonUp="Pet_MouseRightButtonUp" MouseDoubleClick="Pet_MouseDoubleClick">
+        Title="BPet" Width="250" Height="390" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" ResizeMode="NoResize" MouseMove="Pet_MouseMove" MouseLeftButtonUp="Pet_MouseLeftButtonUp">
   <Grid>
-    <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FDFDFFFF" CornerRadius="18" Padding="14" BorderBrush="#D8D1FF" BorderThickness="1" VerticalAlignment="Top" Margin="0,0,0,154">
-      <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#26233B" FontSize="14" MaxHeight="78" />
-    </Border>
-    <Grid VerticalAlignment="Bottom" Height="175" x:Name="PetVisual">
-      <Ellipse x:Name="PetBody" Fill="#8D72F8" Width="146" Height="146" VerticalAlignment="Bottom" />
-      <Path x:Name="LeftEar" Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="23,4,0,0" />
-      <Path x:Name="RightEar" Fill="#7055D6" Data="M37,43 L17,5 L68,27 Z" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,23,0" RenderTransformOrigin="0.5,0.5"><Path.RenderTransform><ScaleTransform ScaleX="-1" /></Path.RenderTransform></Path>
-      <Ellipse Fill="#FFFDFB" Width="27" Height="32" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="49,59,0,0" />
-      <Ellipse Fill="#FFFDFB" Width="27" Height="32" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,59,49,0" />
-      <Ellipse Fill="#25213C" Width="9" Height="12" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="58,69,0,0" />
-      <Ellipse Fill="#25213C" Width="9" Height="12" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,69,58,0" />
-      <Ellipse Fill="#F2A0B6" Width="16" Height="11" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,95,0,0" />
-      <TextBlock x:Name="StateText" Text="BPet · Idle" Foreground="White" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" />
-    </Grid>
+    <Ellipse Width="108" Height="16" Fill="#33000000" VerticalAlignment="Bottom" Margin="0,0,0,4" IsHitTestVisible="False"/>
+    <Image x:Name="PetImage" Stretch="Uniform" VerticalAlignment="Bottom" Width="250" Height="384"
+           RenderTransformOrigin="0.5,1"
+           MouseLeftButtonDown="Pet_MouseLeftButtonDown" MouseRightButtonUp="Pet_MouseRightButtonUp">
+      <Image.RenderTransform>
+        <TransformGroup>
+          <ScaleTransform x:Name="PetFlip" ScaleX="1" ScaleY="1"/>
+          <TranslateTransform x:Name="PetBob"/>
+        </TransformGroup>
+      </Image.RenderTransform>
+    </Image>
+    <StackPanel VerticalAlignment="Top" Margin="6,4,6,0" IsHitTestVisible="True">
+      <Border x:Name="ActionBar" Visibility="Collapsed" Background="#FFFFFFF6" CornerRadius="16" Padding="8,6" BorderBrush="#E4D8FF" BorderThickness="1" HorizontalAlignment="Center">
+        <StackPanel>
+          <TextBlock x:Name="StatText" FontSize="11" Foreground="#6E6586" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+          <WrapPanel HorizontalAlignment="Center">
+            <Button Content="Cho ăn" Click="Feed_Click" Padding="8,4" Margin="2" FontSize="12"/>
+            <Button Content="Vỗ về" Click="Pat_Click" Padding="8,4" Margin="2" FontSize="12"/>
+            <Button Content="Ngủ" Click="Sleep_Click" Padding="8,4" Margin="2" FontSize="12"/>
+            <Button Content="Đi làm" Click="Work_Click" Padding="8,4" Margin="2" FontSize="12"/>
+            <Button Content="Chat" Click="Chat_Click" Padding="8,4" Margin="2" FontSize="12"/>
+            <Button Content="Thêm" Click="More_Click" Padding="8,4" Margin="2" FontSize="12" Background="#827E96"/>
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+      <Border x:Name="SpeechBubble" Visibility="Collapsed" Background="#FFFFFFF8" CornerRadius="16" Padding="12,8" Margin="0,6,0,0" BorderBrush="#E4D8FF" BorderThickness="1" MaxWidth="230" HorizontalAlignment="Center">
+        <TextBlock x:Name="SpeechText" TextWrapping="Wrap" Foreground="#2C2740" FontSize="13" TextAlignment="Center"/>
+      </Border>
+    </StackPanel>
   </Grid>
 </Window>
