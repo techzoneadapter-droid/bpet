@@ -28,7 +28,7 @@ public sealed class AiSettings
 {
     public AiProviderKind Provider { get; set; } = AiProviderKind.None;
     public string OpenAiModel { get; set; } = "gpt-4.1-mini";
-    public string GeminiModel { get; set; } = "gemini-2.5-flash";
+    public string GeminiModel { get; set; } = "gemini-3.8-flash";
     public string CustomModelId { get; set; } = "";
     public string CustomBaseUrl { get; set; } = "";
     public bool Streaming { get; set; } = true;

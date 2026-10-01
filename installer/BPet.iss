@@ -18,6 +18,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=force
+RestartApplications=no
 AppMutex=Local\BPet.SingleInstance
 
 [Files]

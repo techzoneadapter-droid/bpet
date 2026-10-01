@@ -17,7 +17,10 @@ public partial class SettingsWindow : Window
     {
         var s = _services.Settings; var p = s.Personality;
         AlwaysOnTop.IsChecked = s.General.AlwaysOnTop; ClickThrough.IsChecked = s.General.ClickThrough; LaunchWithWindows.IsChecked = s.General.LaunchWithWindows; LanguagePicker.SelectedIndex = s.General.Language.StartsWith("vi") ? 0 : 1; ReloadCharacters();
-        Provider.SelectedIndex = s.Ai.Provider switch { AiProviderKind.OpenAI => 1, AiProviderKind.Gemini => 2, AiProviderKind.OpenAiCompatible => 3, _ => 0 }; Model.Text = s.Ai.Provider == AiProviderKind.Gemini ? s.Ai.GeminiModel : s.Ai.OpenAiModel; BaseUrl.Text = s.Ai.CustomBaseUrl; Streaming.IsChecked = s.Ai.Streaming;
+        Provider.SelectedIndex = s.Ai.Provider switch { AiProviderKind.OpenAI => 1, AiProviderKind.Gemini => 2, AiProviderKind.OpenAiCompatible => 3, _ => 0 };
+        if (s.Ai.Provider == AiProviderKind.Gemini) s.Ai.GeminiModel = GeminiProvider.GeminiModelName(s.Ai.GeminiModel);
+        Model.Text = s.Ai.Provider == AiProviderKind.Gemini ? s.Ai.GeminiModel : s.Ai.OpenAiModel;
+        BaseUrl.Text = s.Ai.CustomBaseUrl; Streaming.IsChecked = s.Ai.Streaming;
         PetName.Text = p.PetName; UserName.Text = p.UserName; Select(Attitude, p.Attitude); Affection.Value = p.Affection; Humor.Value = p.Humor; Formality.Value = p.Formality; Talkativeness.Value = p.Talkativeness; Proactiveness.Value = p.Proactiveness; EmojiUsage.Value = p.EmojiUsage; CustomInstructions.Text = p.CustomInstructions; ReloadProfiles();
         Select(RelationshipPreset, p.RelationshipPreset); PetPronoun.Text = p.PetPronoun; UserPronoun.Text = p.UserPronoun; RelationshipDescription.Text = p.RelationshipDescription;
         AutoMovement.IsChecked = s.PetBehavior.AutoMovement; Simulation.IsChecked = s.PetBehavior.SimulationEnabled; MovementFrequency.Value = s.PetBehavior.MovementFrequency;
@@ -39,7 +42,21 @@ public partial class SettingsWindow : Window
     }
     private async void TestConnection_Click(object sender, RoutedEventArgs e)
     {
-        SaveValues(false); ConnectionStatus.Text = "Đang kiểm tra…"; var ok = await _services.CurrentProvider().TestAsync(CancellationToken.None); ConnectionStatus.Text = ok ? "Kết nối thành công." : "Chưa kết nối được. Hãy kiểm tra API key, model và mạng.";
+        if (Provider.SelectedIndex <= 0) { ConnectionStatus.Text = "Hãy chọn OpenAI hoặc Google Gemini trước."; return; }
+        try
+        {
+            SaveValues(false);
+            ConnectionStatus.Text = "Đang kiểm tra…";
+            var reply = await _services.CurrentProvider().CompleteAsync("Reply with the single word OK.", new[] { new ChatMessage("user", "ping") }, CancellationToken.None);
+            ConnectionStatus.Text = string.IsNullOrWhiteSpace(reply) ? "Đã kết nối nhưng phản hồi trống." : "Kết nối thành công.";
+        }
+        catch (Exception error) { ConnectionStatus.Text = "Chưa kết nối được: " + error.Message; }
+    }
+    private void Provider_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || Model is null) return;
+        if (Provider.SelectedIndex == 2) Model.Text = GeminiProvider.GeminiModelName(Model.Text);
+        else if (Provider.SelectedIndex is 1 or 3 && Model.Text.Trim().StartsWith("gemini-", StringComparison.OrdinalIgnoreCase)) Model.Text = "gpt-4.1-mini";
     }
     private void RelationshipPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -87,7 +104,7 @@ public partial class SettingsWindow : Window
     private void SaveValues(bool persist)
     {
         var s = _services.Settings; var p = s.Personality; s.General.AlwaysOnTop = AlwaysOnTop.IsChecked == true; s.General.ClickThrough = ClickThrough.IsChecked == true; s.General.LaunchWithWindows = LaunchWithWindows.IsChecked == true; s.General.Language = LanguagePicker.SelectedIndex == 0 ? "vi-VN" : "en-US";
-        s.Ai.Provider = Provider.SelectedIndex switch { 1 => AiProviderKind.OpenAI, 2 => AiProviderKind.Gemini, 3 => AiProviderKind.OpenAiCompatible, _ => AiProviderKind.None }; s.Ai.Streaming = Streaming.IsChecked == true; s.Ai.CustomBaseUrl = BaseUrl.Text.Trim(); if (s.Ai.Provider == AiProviderKind.Gemini) s.Ai.GeminiModel = Model.Text.Trim(); else s.Ai.OpenAiModel = Model.Text.Trim();
+        s.Ai.Provider = Provider.SelectedIndex switch { 1 => AiProviderKind.OpenAI, 2 => AiProviderKind.Gemini, 3 => AiProviderKind.OpenAiCompatible, _ => AiProviderKind.None }; s.Ai.Streaming = Streaming.IsChecked == true; s.Ai.CustomBaseUrl = BaseUrl.Text.Trim(); s.Ai.CustomModelId = ""; if (s.Ai.Provider == AiProviderKind.Gemini) { s.Ai.GeminiModel = GeminiProvider.GeminiModelName(Model.Text); Model.Text = s.Ai.GeminiModel; } else s.Ai.OpenAiModel = Model.Text.Trim();
         var secretName = s.Ai.Provider switch { AiProviderKind.OpenAI => "openai", AiProviderKind.Gemini => "gemini", AiProviderKind.OpenAiCompatible => "custom", _ => "" }; if (!string.IsNullOrWhiteSpace(secretName) && !string.IsNullOrWhiteSpace(ApiKey.Password)) _services.Credentials.Save(secretName, ApiKey.Password);
         p.PetName = PetName.Text.Trim() is { Length: > 0 } name ? name : "BPet"; p.UserName = UserName.Text.Trim() is { Length: > 0 } user ? user : "Bạn"; p.Attitude = Choice(Attitude); p.RelationshipPreset = Choice(RelationshipPreset); p.PetPronoun = PetPronoun.Text.Trim(); p.UserPronoun = UserPronoun.Text.Trim(); p.RelationshipDescription = RelationshipDescription.Text.Trim(); p.Affection = (int)Affection.Value; p.Humor = (int)Humor.Value; p.Formality = (int)Formality.Value; p.Talkativeness = (int)Talkativeness.Value; p.Proactiveness = (int)Proactiveness.Value; p.EmojiUsage = (int)EmojiUsage.Value; p.CustomInstructions = CustomInstructions.Text;
         s.PetBehavior.AutoMovement = AutoMovement.IsChecked == true; s.PetBehavior.SimulationEnabled = Simulation.IsChecked == true; s.PetBehavior.MovementFrequency = (int)MovementFrequency.Value; if (Application.Current.MainWindow is MainWindow pet) pet.ApplyOptions(); if (persist) { WindowsStartup.Apply(s.General.LaunchWithWindows); _services.Save(); _services.Tray.SyncStartupItem(); }

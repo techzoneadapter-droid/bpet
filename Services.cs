@@ -248,15 +248,32 @@ public sealed class UpdateService
         using var response = await client.GetAsync(update.InstallerUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         var length = response.Content.Headers.ContentLength;
-        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = File.Create(destination);
-        var buffer = new byte[81920]; long total = 0; int read;
-        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+        await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
+        await using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
         {
-            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken); total += read;
-            if (length is > 0) progress?.Report((int)(total * 100 / length.Value));
+            var buffer = new byte[81920];
+            long total = 0;
+            int read;
+            while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                total += read;
+                if (length is > 0) progress?.Report((int)(total * 100 / length.Value));
+            }
+            await output.FlushAsync(cancellationToken);
         }
-        Process.Start(new ProcessStartInfo(destination) { UseShellExecute = true });
+
+        var script = Path.Combine(Path.GetTempPath(), "bpet-update.cmd");
+        var pid = Environment.ProcessId;
+        File.WriteAllText(script, "@echo off\r\n:wait\r\ntasklist /FI \"PID eq " + pid + "\" 2>nul | find \"" + pid + "\" >nul\r\nif %errorlevel%==0 (\r\n  ping 127.0.0.1 -n 2 >nul\r\n  goto wait\r\n)\r\nstart \"\" \"" + destination + "\"\r\n");
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c \"" + script + "\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetTempPath()
+        });
     }
 }
 
@@ -294,7 +311,7 @@ public sealed class OpenAiProvider : IAIProvider
         var model = string.IsNullOrWhiteSpace(_settings.CustomModelId) ? _settings.OpenAiModel : _settings.CustomModelId;
         var body = new { model, messages = new[] { new { role = "system", content = system } }.Concat(messages.Select(x => new { role = x.Role, content = x.Content })).ToArray() };
         using var response = await client.PostAsync("/v1/chat/completions", new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
-        response.EnsureSuccessStatusCode();
+        await ApiErrors.EnsureSuccess(response, ct);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
     }
@@ -313,14 +330,56 @@ public sealed class GeminiProvider : IAIProvider
     public async Task<string> CompleteAsync(string system, IReadOnlyList<ChatMessage> messages, CancellationToken ct)
     {
         var key = _vault.Read("gemini") ?? throw new InvalidOperationException("Chưa có Gemini API key.");
-        var model = string.IsNullOrWhiteSpace(_settings.CustomModelId) ? _settings.GeminiModel : _settings.CustomModelId;
+        var model = GeminiModelName(_settings.GeminiModel);
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+        request.Headers.TryAddWithoutValidation("x-goog-api-key", key);
         var contents = messages.Select(x => new { role = x.Role == "assistant" ? "model" : "user", parts = new[] { new { text = x.Content } } });
         var body = new { system_instruction = new { parts = new[] { new { text = system } } }, contents };
-        using var response = await client.PostAsync($"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={Uri.EscapeDataString(key)}", new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
-        response.EnsureSuccessStatusCode();
+        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        using var response = await client.SendAsync(request, ct);
+        await ApiErrors.EnsureSuccess(response, ct);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        return json.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? "";
+        var root = json.RootElement;
+        if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            throw new InvalidOperationException("Gemini không trả về nội dung. Hãy kiểm tra API key và model.");
+        var texts = new List<string>();
+        foreach (var part in candidates[0].GetProperty("content").GetProperty("parts").EnumerateArray())
+        {
+            if (part.TryGetProperty("thought", out var thought) && thought.ValueKind == JsonValueKind.True) continue;
+            if (part.TryGetProperty("text", out var text) && text.GetString() is { Length: > 0 } value) texts.Add(value);
+        }
+        if (texts.Count == 0) throw new InvalidOperationException("Gemini trả về rỗng. Thử model gemini-3.8-flash.");
+        return string.Join("", texts);
+    }
+
+    internal static string GeminiModelName(string? model)
+    {
+        var value = model?.Trim() ?? "";
+        if (value.Length == 0 || !value.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase)) return "gemini-3.8-flash";
+        return value is "gemini-2.5-flash" or "gemini-2.5-flash-lite" or "gemini-2.0-flash" or "gemini-1.5-flash" or "gemini-1.5-pro" ? "gemini-3.8-flash" : value;
+    }
+}
+
+internal static class ApiErrors
+{
+    public static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var message = body;
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            if (json.RootElement.TryGetProperty("error", out var error))
+            {
+                if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out var nested)) message = nested.GetString() ?? body;
+                else if (error.ValueKind == JsonValueKind.String) message = error.GetString() ?? body;
+            }
+        }
+        catch { /* The body was not JSON. */ }
+        if (message.Length > 240) message = message[..240];
+        throw new InvalidOperationException($"{(int)response.StatusCode}: {message}");
     }
 }
 
