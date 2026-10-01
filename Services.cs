@@ -29,6 +29,11 @@ public sealed class AppServices : IDisposable
     {
         Settings = Store.Load();
         Characters.Reload();
+        if (!Settings.General.PickedMy)
+        {
+            Settings.General.CharacterId = "bpet-my";
+            Settings.General.PickedMy = true;
+        }
         if (Characters.Find(Settings.General.CharacterId) is null && Characters.All.Count > 0)
             Settings.General.CharacterId = Characters.All[0].Id;
         if (Settings.Profiles.Count == 0)
@@ -208,7 +213,7 @@ public sealed class CharacterManager
     }
     private static IEnumerable<CharacterInfo> BuiltIns()
     {
-        foreach (var (id, name, attitude) in new[] { ("bpet-cat", "BPet Cat · Cute", "Cute"), ("bpet-chibi", "BPet Chibi · Energetic", "Energetic"), ("bpet-knight", "BPet Knight · Serious", "Serious") })
+        foreach (var (id, name, attitude) in new[] { ("bpet-my", "Trà My", "Cute"), ("bpet-cat", "BPet", "Cute") })
         {
             var manifest = new CharacterManifest { Id = id, Name = name, RecommendedAttitude = attitude, Animations = Enum.GetNames<PetState>().ToDictionary(x => x, _ => "builtin", StringComparer.OrdinalIgnoreCase) };
             yield return new CharacterInfo(id, name, attitude, true, null, manifest);

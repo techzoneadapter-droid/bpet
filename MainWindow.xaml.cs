@@ -70,18 +70,29 @@ public partial class MainWindow : Window
         _clips["happy"] = new[] { LoadFrame("happy") };
         _clips["raised"] = new[] { LoadFrame("raised") };
         _clips["climb"] = new[] { LoadFrame("climb") };
-        SetClip("idle");
+        var clip = string.IsNullOrEmpty(_clip) ? "idle" : _clip;
+        _clip = "";
+        SetClip(clip);
     }
 
-    private static BitmapImage LoadFrame(string name)
+    private BitmapImage LoadFrame(string name)
     {
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.UriSource = new Uri($"pack://application:,,,/Assets/{name}.png", UriKind.Absolute);
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.EndInit();
-        image.Freeze();
-        return image;
+        var folder = _services.Settings.General.CharacterId == "bpet-my" ? "Assets/my" : "Assets";
+        foreach (var path in new[] { $"{folder}/{name}.png", $"Assets/{name}.png" })
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.UriSource = new Uri($"pack://application:,,,/{path}", UriKind.Absolute);
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.EndInit();
+                image.Freeze();
+                return image;
+            }
+            catch { /* Fall back to the default sprite if a frame is missing. */ }
+        }
+        throw new IOException($"Thiếu ảnh {name}.");
     }
 
     public void ApplyOptions()
@@ -140,6 +151,7 @@ public partial class MainWindow : Window
         var selected = _services.Characters.Find(_services.Settings.General.CharacterId) ?? _services.Characters.All.FirstOrDefault();
         if (selected is null) return;
         _services.Settings.General.CharacterId = selected.Id;
+        if (IsLoaded) LoadClips();
     }
 
     public void ShowSpeech(string text, PetState state = PetState.Talking)
@@ -483,6 +495,19 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Chat", OpenChat));
         menu.Items.Add(Item("Ra chiêu", PlayFlourish));
         menu.Items.Add(Item("Cài đặt", () => new SettingsWindow(_services).Show()));
+        var chars = new MenuItem { Header = "Nhân vật" };
+        foreach (var character in _services.Characters.All.Where(x => x.IsBuiltIn))
+        {
+            var id = character.Id;
+            chars.Items.Add(Item(character.Name, () =>
+            {
+                _services.Settings.General.CharacterId = id;
+                _services.Settings.General.PickedMy = true;
+                ApplyCharacter();
+                _services.Save();
+            }));
+        }
+        menu.Items.Add(chars);
         var size = new MenuItem { Header = $"Kích thước ({NormalizedSize()}%)" };
         foreach (var preset in new[] { 40, 55, 70, 100 }) size.Items.Add(Item(preset + "%", () => SetSize(preset)));
         size.Items.Add(Item("Nhỏ hơn", () => SetSize(_services.Settings.General.SizePercent - 8)));
