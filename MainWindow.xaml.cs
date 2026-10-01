@@ -17,7 +17,8 @@ public partial class MainWindow : Window
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _speechTimer = new() { Interval = TimeSpan.FromSeconds(6) };
-    private readonly DispatcherTimer _moveTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
+    private TimeSpan? _lastRender;
+    private double _frameDelta;
     private readonly Dictionary<string, BitmapImage[]> _clips = new();
     private readonly Random _random = new();
     private bool _dragging;
@@ -33,14 +34,11 @@ public partial class MainWindow : Window
     private double _vy;
     private double _phase;
     private double _clock;
-    private DateTime _lastTick;
     private const double DesignWidth = 250;
     private const double DesignHeight = 390;
     private const double DesignImage = 384;
     private ChatDock? _dock;
     private DateTime _nextFx = DateTime.Now.AddSeconds(8);
-    private double _foot;
-    private double _ghost;
     private int _heldFrame = -1;
     private double _climbTop;
     private BubbleWindow? _bubble;
@@ -58,11 +56,17 @@ public partial class MainWindow : Window
             ApplyCharacter();
             Show();
             Activate();
-            _moveTimer.Start();
+            Begin(Act.Idle, 2);
         };
         LocationChanged += (_, _) => { _services.Settings.General.Left = Left; _services.Settings.General.Top = Top; PlaceBubble(); };
         _speechTimer.Tick += (_, _) => { if (_bubble is not null) _bubble.Hide(); _speechTimer.Stop(); };
-        _moveTimer.Tick += (_, _) => Move();
+        IsVisibleChanged += (_, _) =>
+        {
+            CompositionTarget.Rendering -= OnRendering;
+            _lastRender = null;
+            if (IsVisible) CompositionTarget.Rendering += OnRendering;
+        };
+        LostMouseCapture += (_, _) => FinishDrag();
     }
 
     private void LoadClips()
@@ -74,7 +78,7 @@ public partial class MainWindow : Window
         _clips["happy"] = new[] { LoadFrame("happy") };
         _clips["raised"] = new[] { LoadFrame("raised") };
         _clips["climb"] = new[] { LoadFrame("climb") };
-        _clips["play"] = new[] { LoadFrame("happy"), LoadFrame("idle"), LoadFrame("raised") };
+        _clips["play"] = new[] { LoadFrame("happy") };
         var clip = string.IsNullOrEmpty(_clip) ? "idle" : _clip;
         _clip = "";
         SetClip(clip);
@@ -187,12 +191,20 @@ public partial class MainWindow : Window
 
     public void RequestExit() => _exitRequested = true;
 
-    private void Move()
+    private void OnRendering(object? sender, EventArgs e)
     {
-        var now = DateTime.UtcNow;
-        if (_lastTick == default) _lastTick = now;
-        var dt = Math.Clamp((now - _lastTick).TotalSeconds, 0.001, 0.05);
-        _lastTick = now;
+        if (e is not RenderingEventArgs frame) return;
+        var previous = _lastRender;
+        _lastRender = frame.RenderingTime;
+        if (previous is null) return;
+        var elapsed = (frame.RenderingTime - previous.Value).TotalSeconds;
+        if (elapsed <= 0) return; // WPF may render twice at the same timestamp.
+        Move(Math.Min(elapsed, 0.05));
+    }
+
+    private void Move(double dt)
+    {
+        _frameDelta = dt;
         _clock += dt;
         var scale = Math.Max(0.35, Height / DesignHeight);
         if (_dragging)
@@ -200,6 +212,7 @@ public partial class MainWindow : Window
             PoseDrag(scale);
             return;
         }
+        if (_pressed) return; // Keep the grab point still until the drag threshold is crossed.
         var area = WorkAreaDip();
         var floor = area.Bottom - Height;
         switch (_act)
@@ -241,20 +254,20 @@ public partial class MainWindow : Window
                 if (Top <= _climbTop || DateTime.Now >= _actUntil)
                 {
                     _dir = Left <= area.Left + Width ? 1 : -1;
-                    Left = Math.Clamp(Left + _dir * 28 * scale, area.Left + 8, Math.Max(area.Left + 8, area.Right - Width - 8));
                     _vx = _dir * 40 * scale;
-                    Begin(_random.Next(100) < 40 ? Act.Play : Act.Walk, 4);
+                    Begin(Act.Fall, 2);
                 }
                 break;
             case Act.Fall:
                 _vy = Math.Min(_vy + 1700 * scale * dt, 900 * scale);
                 Top = Math.Min(Top + _vy * dt, floor);
-                PetTilt.Angle = Math.Clamp(_dir * -4, -6, 6);
-                PetSquash.ScaleX = 1;
-                PetSquash.ScaleY = 1;
+                Left += _vx * dt;
+                Pose(1, 1, _dir * -3, 0);
                 if (Top >= floor - 0.5)
                 {
                     _vy = 0;
+                    _vx = 0;
+                    _act = Act.Idle;
                     Begin(Act.Idle, 2.2);
                 }
                 break;
@@ -262,11 +275,11 @@ public partial class MainWindow : Window
                 _vx = Approach(_vx, 0, dt, 340 * scale);
                 if (Math.Abs(_vx) > 1) Left += _vx * dt;
                 Top = floor;
-                if (Math.Abs(_vx) > 22) PoseWalk();
-                else PoseRest(scale);
+                PoseRest(scale);
                 if (DateTime.Now >= _actUntil && Math.Abs(_vx) < 10) Decide();
                 break;
         }
+        Left = Math.Clamp(Left, area.Left, Math.Max(area.Left, area.Right - Width));
         GroundShadow.Width = (92 * scale) * PetSquash.ScaleX;
     }
 
@@ -284,12 +297,13 @@ public partial class MainWindow : Window
         PetFlip.ScaleX = velocity > 0 ? -1 : 1;
     }
 
-    private void PoseWalk() => Hold("walk", 8, 1, 1, 0);
-    private void PoseCrawl() => Hold("walk", 11, 1.1, 0.66, 0);
+    private void PoseWalk() => Hold("walk", 6, 1, 1, 0);
+    private void PoseCrawl() => Hold("walk", 4, 1.03, 0.92, 0);
     private void PosePlay()
     {
-        var beat = (int)(_phase * 3.4);
-        Hold("play", 3.4, 1, beat % 2 == 0 ? 0.96 : 1.05, beat % 2 == 0 ? -8 : 8);
+        // Use one pose with a continuous sway; unrelated full-body poses pop.
+        var sway = Math.Sin(_phase * Math.PI * 2);
+        Hold("play", 1, 1, 1 + sway * 0.015, sway * 3);
     }
 
     private void Hold(string clip, double fps, double scaleX, double scaleY, double tilt)
@@ -297,65 +311,40 @@ public partial class MainWindow : Window
         if (_clips.TryGetValue(clip, out var frames) && frames.Length > 0)
         {
             var index = (int)Math.Floor(_phase * fps) % frames.Length;
-            if (index < 0) index += frames.Length;
-            if (index != _heldFrame)
+            if (_clip != clip || index != _heldFrame)
             {
-                if (PetImage.Source is not null)
-                {
-                    PetGhost.Source = PetImage.Source;
-                    GhostFlip.ScaleX = PetFlip.ScaleX;
-                    GhostShift.X = _dir * -16;
-                    _ghost = 0.45;
-                }
+                _clip = clip;
                 _heldFrame = index;
                 PetImage.Source = frames[index];
-                _foot = -7;
             }
         }
-        PetSquash.ScaleX = scaleX;
-        PetSquash.ScaleY = scaleY;
-        PetTilt.Angle = tilt;
-        PetBob.X = 0;
-        PetBob.Y = _foot;
-        _foot *= 0.78;
-        if (_ghost > 0)
-        {
-            _ghost -= 0.09;
-            PetGhost.Opacity = Math.Max(0, _ghost);
-        }
-        else PetGhost.Opacity = 0;
+        // Frame changes must not kick the sprite upward or leave offset duplicates.
+        Pose(scaleX, scaleY, tilt, 0);
     }
 
-    private void PoseRest(double scale)
+    private void Pose(double scaleX, double scaleY, double tilt, double bob)
     {
-        var breath = Math.Sin(_clock * 1.4);
+        // Exponential smoothing is independent of monitor refresh rate.
+        var blend = 1 - Math.Exp(-14 * _frameDelta);
+        PetSquash.ScaleX += (scaleX - PetSquash.ScaleX) * blend;
+        PetSquash.ScaleY += (scaleY - PetSquash.ScaleY) * blend;
+        PetTilt.Angle += (tilt - PetTilt.Angle) * blend;
         PetBob.X = 0;
-        PetBob.Y = breath * -1.3 * scale;
-        PetTilt.Angle = 0;
-        PetSquash.ScaleX = 1;
-        PetSquash.ScaleY = 1;
+        PetBob.Y += (bob - PetBob.Y) * blend;
+        PetGhost.Opacity = 0;
     }
+
+    private void PoseRest(double scale) =>
+        Pose(1, 1, 0, Math.Sin(_clock * 1.4) * -0.6 * scale);
 
     private void PoseClimb()
     {
-        var beat = (int)(_phase * 5.5) % 2;
-        PetTilt.Angle = _dir * (beat == 0 ? -10 : 9);
-        PetBob.Y = beat == 0 ? -6 : 2;
-        PetBob.X = 0;
-        PetSquash.ScaleX = beat == 0 ? 0.96 : 1.04;
-        PetSquash.ScaleY = beat == 0 ? 1.06 : 0.96;
-        PetGhost.Opacity = 0;
-        if (_clips.TryGetValue("climb", out var frames) && frames.Length > 0 && PetImage.Source != frames[0]) PetImage.Source = frames[0];
+        var sway = Math.Sin(_phase * Math.PI * 2 * 1.2);
+        Pose(1, 1, _dir * sway * 3, sway * 0.8);
     }
 
-    private void PoseDrag(double scale)
-    {
-        PetBob.Y = -1.5 * scale;
-        PetBob.X = 0;
-        PetTilt.Angle = Math.Sin(_clock * 6) * 3;
-        PetSquash.ScaleX = 1;
-        PetSquash.ScaleY = 1;
-    }
+    private void PoseDrag(double scale) =>
+        Pose(1, 1, Math.Sin(_clock * 3) * 1.5, -0.5 * scale);
 
     private void Decide()
     {
@@ -389,6 +378,8 @@ public partial class MainWindow : Window
     private void StartClimb(int leaveDir, Rect area)
     {
         _dir = leaveDir;
+        _vx = 0;
+        Left = Math.Clamp(Left, area.Left, Math.Max(area.Left, area.Right - Width));
         PetFlip.ScaleX = leaveDir > 0 ? -1 : 1;
         _climbTop = Math.Max(area.Top + 24, Top - _random.Next(110, 200));
         Begin(Act.Climb, 7);
@@ -396,9 +387,11 @@ public partial class MainWindow : Window
 
     private void Begin(Act act, double seconds)
     {
+        // Reactions while airborne must not snap the window back to the floor.
+        if ((_act is Act.Climb or Act.Fall) && act != Act.Fall) return;
         _act = act;
         _actUntil = DateTime.Now.AddSeconds(seconds);
-        if (act == Act.Fall) _vy = 80;
+        if (act == Act.Fall) _vy = 0;
         if (act is Act.Walk or Act.Crawl) PetFlip.ScaleX = _dir > 0 ? -1 : 1;
         _phase = 0;
         _heldFrame = -1;
@@ -425,8 +418,8 @@ public partial class MainWindow : Window
 
     private Rect WorkAreaDip()
     {
-        var probe = new System.Drawing.Point((int)Math.Max(0, Left + 20), (int)Math.Max(0, Top + 20));
-        var screen = System.Windows.Forms.Screen.FromPoint(probe);
+        // Screen coordinates are physical pixels; Left/Top are WPF DIPs.
+        var screen = System.Windows.Forms.Screen.FromHandle(new WindowInteropHelper(this).Handle);
         var source = PresentationSource.FromVisual(this);
         if (source?.CompositionTarget is null) return SystemParameters.WorkArea;
         var fromDevice = source.CompositionTarget.TransformFromDevice;
@@ -539,6 +532,8 @@ public partial class MainWindow : Window
             if (Math.Abs(here.X - _grab.X) + Math.Abs(here.Y - _grab.Y) < 10) return;
             _dragged = true;
             _dragging = true;
+            _vx = 0;
+            _vy = 0;
             SetClip("raised");
         }
         var cursor = CursorDip();
@@ -546,19 +541,22 @@ public partial class MainWindow : Window
         Top = cursor.Y - _grab.Y;
     }
 
+    private void FinishDrag()
+    {
+        var wasDragged = _dragged;
+        _pressed = false;
+        _dragging = false;
+        _dragged = false;
+        if (wasDragged) Begin(Act.Fall, 2);
+    }
+
     private void Pet_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_pressed) return;
-        _pressed = false;
+        var wasDragged = _dragged;
+        FinishDrag();
         ReleaseMouseCapture();
-        if (_dragged)
-        {
-            _dragging = false;
-            _dragged = false;
-            Begin(Act.Fall, 2);
-            return;
-        }
-        OpenChat();
+        if (!wasDragged) OpenChat();
     }
 
     private void Pet_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -629,7 +627,8 @@ public partial class MainWindow : Window
     {
         if (!_exitRequested) { e.Cancel = true; Hide(); if (_bubble is not null) _bubble.Hide(); return; }
         _bubble?.Close();
-        _moveTimer.Stop();
+        CompositionTarget.Rendering -= OnRendering;
+        _speechTimer.Stop();
         _services.Save();
     }
 
